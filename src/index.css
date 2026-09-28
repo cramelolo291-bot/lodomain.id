@@ -63,38 +63,53 @@
   --font-mono: var(--font-mono);
 }
 
-/* One accent, warm neutrals. Everything else is a shade of the background —
-   that restraint is the whole point, so resist adding a second hue. */
+/* Two real themes. Light is the base: gray and white, with ink for the accent.
+   Dark is an override on `.dark`: black and violet. The neutral ramp in light
+   mode carries a faint violet cast so the two modes read as one product rather
+   than as two skins. */
 :root {
+  color-scheme: light;
   --radius: 0.875rem;
 
-  /* Four greys, plus a void underneath everything. The steps are close enough
-     to read as one material and far enough apart to survive a dim display. */
-  --bg: #100f0d;
-  --bg-2: #0a0908;
-  --bg-deep: #070706;
-  --surface-1: #191715;
-  --surface-2: #201e1b;
-  --surface-3: #2b2824;
+  /* Four greys on white. Steps stay close enough to read as one material. */
+  --bg: #ffffff;
+  --bg-2: #f7f7f8;
+  --bg-3: #f1f1f3;
+  --bg-deep: #ececed;
+  --surface-1: #ffffff;
+  --surface-2: #f4f4f6;
+  --surface-3: #eaeaed;
 
-  --text-1: #f4f1ea;
-  --text-2: #b5aea2;
-  --text-3: #837c70;
-  --text-4: #5b554c;
+  --text-1: #16161a;
+  --text-2: #45454e;
+  /* Every tier below clears 4.5:1 against the worst surface it sits on,
+     including #eaeaed. A four-step grey ramp cannot all clear 4.5:1 and keep
+     its old spread, so the steps are tighter now and the hierarchy is carried
+     by size and weight instead of by falling below AA. */
+  --text-3: #54545f;
+  --text-4: #66666f;
 
-  /* Hairlines, not borders. A 1px rule at 7% white reads as an edge of a
-     material; at 20% it reads as a box someone drew. */
-  --line: rgba(244, 241, 234, 0.07);
-  --line-strong: rgba(244, 241, 234, 0.13);
-  /* The lit edge on top of a raised surface — what makes it read as solid. */
-  --spec: rgba(255, 255, 255, 0.055);
+  /* Hairlines, not borders. 8% black reads as an edge of a material. */
+  --line: rgba(22, 22, 26, 0.08);
+  --line-strong: rgba(22, 22, 26, 0.14);
+  --spec: rgba(255, 255, 255, 0.9);
 
-  --accent-warm: #d97757;
-  --accent-warm-hover: #e2896a;
-  --accent-warm-soft: rgba(217, 119, 87, 0.13);
-  --accent-cool: #9db4a8;
-  --accent-cool-soft: rgba(157, 180, 168, 0.12);
-  --ember-rgb: 217, 119, 87;
+  /* Light mode has no hue: the accent is ink. Solid near-black on white is
+     the whole look. */
+  --accent-warm: #16161a;
+  --accent-warm-hover: #2f2f37;
+  --accent-warm-soft: rgba(22, 22, 26, 0.07);
+  --accent-cool: #565678;
+  --accent-cool-soft: rgba(86, 86, 120, 0.1);
+  --ember-rgb: 22, 22, 26;
+  --violet-rgb: 109, 74, 216;
+  /* The two materials that carry light. Both are black-tinted in light mode so
+     they are visible against a white card, and white-tinted in dark mode. */
+  --glass-rgb: 22, 22, 26;
+  --sheen-rgb: 22, 22, 26;
+  --shadow-soft: rgba(22, 22, 26, 0.1);
+  --shadow-deep: rgba(22, 22, 26, 0.16);
+  --vignette: rgba(22, 22, 26, 0.14);
 
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
@@ -111,34 +126,80 @@
   --popover: var(--surface-1);
   --popover-foreground: var(--text-1);
   --primary: var(--accent-warm);
-  --primary-foreground: #17120f;
+  --primary-foreground: #ffffff;
   --secondary: var(--surface-2);
   --secondary-foreground: var(--text-1);
   --muted: var(--surface-2);
   --muted-foreground: var(--text-3);
   --accent: var(--accent-warm-soft);
   --accent-foreground: var(--accent-warm);
-  --destructive: #d96a5a;
-  --border: rgba(244, 241, 234, 0.09);
-  --input: rgba(244, 241, 234, 0.12);
+  --destructive: #c0392b;
+  --border: rgba(22, 22, 26, 0.1);
+  --input: rgba(22, 22, 26, 0.14);
   --ring: var(--accent-warm);
-  --chart-1: #d97757;
-  --chart-2: #9db4a8;
-  --chart-3: #b8a68c;
-  --chart-4: #8a9bb0;
-  --chart-5: #a8937f;
+  --chart-1: #6d4ad8;
+  --chart-2: #565678;
+  --chart-3: #8a8a94;
+  --chart-4: #3f3f4a;
+  --chart-5: #b0b0b8;
   --sidebar: var(--surface-1);
   --sidebar-foreground: var(--text-2);
   --sidebar-primary: var(--accent-warm);
-  --sidebar-primary-foreground: #17120f;
+  --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: var(--surface-2);
   --sidebar-accent-foreground: var(--text-1);
-  --sidebar-border: rgba(244, 241, 234, 0.09);
+  --sidebar-border: rgba(22, 22, 26, 0.1);
   --sidebar-ring: var(--accent-warm);
 }
 
+/* Dark: black and violet. The ramp leans cool-purple rather than neutral so
+   the accent is not a sticker on top of a grey UI — it is the light source. */
 .dark {
   color-scheme: dark;
+  --bg: #08070c;
+  --bg-2: #06050a;
+  --bg-3: #100e18;
+  --bg-deep: #040307;
+  --surface-1: #100e17;
+  --surface-2: #17141f;
+  --surface-3: #1f1a2b;
+
+  --text-1: #f2f0f7;
+  --text-2: #b6b1cb;
+  --text-3: #a09bba;
+  --text-4: #8782a7;
+
+  --line: rgba(242, 240, 247, 0.07);
+  --line-strong: rgba(242, 240, 247, 0.13);
+  --spec: rgba(255, 255, 255, 0.055);
+
+  --accent-warm: #a06bff;
+  --accent-warm-hover: #b48cff;
+  --accent-warm-soft: rgba(160, 107, 255, 0.15);
+  --accent-cool: #7dd3c0;
+  --accent-cool-soft: rgba(125, 211, 192, 0.12);
+  --ember-rgb: 160, 107, 255;
+  --violet-rgb: 160, 107, 255;
+  --glass-rgb: 255, 255, 255;
+  --sheen-rgb: 255, 255, 255;
+  --shadow-soft: rgba(0, 0, 0, 0.4);
+  --shadow-deep: rgba(0, 0, 0, 0.9);
+  --vignette: rgba(0, 0, 0, 0.55);
+
+  --primary-foreground: #0b0713;
+  --destructive: #d96a5a;
+  --border: rgba(242, 240, 247, 0.09);
+  --input: rgba(242, 240, 247, 0.12);
+  --accent-foreground: var(--accent-warm);
+  --chart-1: #a06bff;
+  --chart-2: #7dd3c0;
+  --chart-3: #b8a68c;
+  --chart-4: #8a9bb0;
+  --chart-5: #c9a3ff;
+  --sidebar-primary-foreground: #0b0713;
+  --sidebar-accent: var(--surface-2);
+  --sidebar-border: rgba(242, 240, 247, 0.09);
+  --sidebar-ring: var(--accent-warm);
 }
 
 @layer base {
@@ -178,10 +239,12 @@
     border-radius: 4px;
   }
 
-  /* Ambient light for every page. Three layers: a warm wash from above, a cool
-     sheen from the left so the wash is not the only thing moving, and a
-     vertical fall into the void. Fixed and behind everything, so scrolling
-     never reveals an edge. */
+  /* Ambient light for every page. Three layers: a wash from above in the
+     accent's own hue, a neutral sheen from the left so the wash is not the
+     only thing moving, and a vertical fall into the ground. Fixed and behind
+     everything, so scrolling never reveals an edge. The values are vars, not
+     literals — this used to be a literal #0b0a09, which left a black smear
+     across the light theme. */
   body::before {
     content: "";
     position: fixed;
@@ -191,11 +254,11 @@
     background:
       radial-gradient(
         92% 62% at 50% -12%,
-        rgba(var(--ember-rgb), 0.085),
+        rgba(var(--ember-rgb), 0.07),
         transparent 62%
       ),
-      radial-gradient(58% 48% at 10% 6%, rgba(244, 241, 234, 0.022), transparent 60%),
-      linear-gradient(180deg, #0b0a09 0%, var(--bg) 42%, var(--bg-2) 100%);
+      radial-gradient(58% 48% at 10% 6%, rgba(var(--glass-rgb), 0.03), transparent 60%),
+      linear-gradient(180deg, var(--bg-3) 0%, var(--bg) 42%, var(--bg-2) 100%);
   }
 }
 
@@ -232,7 +295,7 @@
     padding: 12px 22px;
     border-radius: 9999px;
     background: var(--accent-warm);
-    color: #17120f;
+    color: var(--primary-foreground);
     font: 500 14px/1 var(--font-ui);
     white-space: nowrap;
     transition:
@@ -268,7 +331,7 @@
   }
   .btn-ghost:hover {
     background: var(--surface-2);
-    border-color: rgba(244, 241, 234, 0.18);
+    border-color: var(--line-strong);
     transform: translateY(-1px);
   }
 
@@ -421,9 +484,9 @@
   .glass {
     background: linear-gradient(
       180deg,
-      rgba(244, 241, 234, 0.032),
-      rgba(244, 241, 234, 0.012) 42%,
-      rgba(244, 241, 234, 0.004)
+      rgba(var(--glass-rgb), 0.032),
+      rgba(var(--glass-rgb), 0.012) 42%,
+      rgba(var(--glass-rgb), 0.004)
     );
     border: 1px solid var(--line);
     border-radius: var(--radius);
@@ -440,8 +503,8 @@
     border-radius: var(--radius);
     box-shadow:
       inset 0 1px 0 0 var(--spec),
-      0 1px 2px rgba(0, 0, 0, 0.4),
-      0 18px 40px -24px rgba(0, 0, 0, 0.9);
+      0 1px 2px var(--shadow-soft),
+      0 18px 40px -24px var(--shadow-deep);
     transition:
       border-color 0.3s var(--ease),
       transform 0.4s var(--ease-cinema),
@@ -451,9 +514,9 @@
     border-color: var(--line-strong);
     transform: translateY(-2px);
     box-shadow:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-      0 2px 4px rgba(0, 0, 0, 0.4),
-      0 28px 60px -28px rgba(0, 0, 0, 0.95);
+      inset 0 1px 0 0 var(--spec),
+      0 2px 4px var(--shadow-soft),
+      0 28px 60px -28px var(--shadow-deep);
   }
 
   /* A gloss that crosses the surface once on hover. Slow enough to be felt
@@ -473,7 +536,7 @@
     background: linear-gradient(
       100deg,
       transparent,
-      rgba(255, 255, 255, 0.045),
+      rgba(var(--sheen-rgb), 0.055),
       transparent
     );
     transform: skewX(-14deg);
@@ -497,7 +560,7 @@
     border: 1px solid var(--line-strong);
     box-shadow:
       inset 0 1px 0 0 var(--spec),
-      0 1px 2px rgba(0, 0, 0, 0.45);
+      0 1px 2px var(--shadow-soft);
     color: var(--text-1);
     font: 500 14px/1 var(--font-ui);
     white-space: nowrap;
@@ -545,7 +608,7 @@
     border-radius: 5px;
     background: var(--surface-2);
     border: 1px solid var(--line);
-    border-bottom-color: rgba(0, 0, 0, 0.5);
+    border-bottom-color: rgba(var(--ember-rgb), 0.35);
     font: 500 10px/1 var(--font-mono);
     color: var(--text-3);
   }
@@ -560,7 +623,7 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: radial-gradient(120% 80% at 50% 40%, transparent 40%, rgba(0, 0, 0, 0.55));
+    background: radial-gradient(120% 80% at 50% 40%, transparent 40%, var(--vignette));
   }
 
   /* Live indicator. A single ember dot with a slow halo — the only place in
@@ -689,6 +752,105 @@
   }
 }
 
+/* ── Motion: kilat, bintang, sentuhan ────────────────────────────────
+   Geometry and light only — no new hue. Each effect is decorative and must
+   be attached to an aria-hidden container, and every one of them is
+   neutralised by the reduced-motion block below. */
+
+:root {
+  /* Stars read as grey dust in light mode — the light palette is meant to be
+     hueless — and as violet in dark mode. */
+  --star-rgb: 22, 22, 26;
+}
+.dark {
+  --star-rgb: 160, 107, 255;
+}
+
+/* Kilat: a thin blade of light that crosses a surface once on hover. Faster
+   and narrower than `.sheen`, which is the slow gloss — this one snaps. */
+.bolt {
+  position: relative;
+  overflow: hidden;
+}
+.bolt::after {
+  content: "";
+  position: absolute;
+  top: -60%;
+  bottom: -60%;
+  left: -90%;
+  width: 34%;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(var(--violet-rgb), 0.14),
+    rgba(var(--violet-rgb), 0.4),
+    rgba(var(--violet-rgb), 0.14),
+    transparent
+  );
+  transform: skewX(-18deg);
+  transition: left 0.45s var(--ease-out-expo);
+}
+.bolt:hover::after,
+.bolt:focus-within::after {
+  left: 140%;
+}
+
+/* A hard, fast edge flash on press — the tactile part of the bolt. */
+.bolt:active::after {
+  transition-duration: 0.12s;
+}
+
+/* Bintang: a sparse field of single-pixel points that breathe. Sparse on
+   purpose; a dense field reads as noise, not as a night sky. */
+.starfield {
+  position: relative;
+}
+.starfield::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.75;
+  background-image:
+    radial-gradient(1px 1px at 8% 18%, rgba(var(--star-rgb), 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 22% 62%, rgba(var(--star-rgb), 0.5), transparent),
+    radial-gradient(1px 1px at 37% 31%, rgba(var(--star-rgb), 0.65), transparent),
+    radial-gradient(1px 1px at 55% 78%, rgba(var(--star-rgb), 0.45), transparent),
+    radial-gradient(1.5px 1.5px at 68% 22%, rgba(var(--star-rgb), 0.6), transparent),
+    radial-gradient(1px 1px at 81% 55%, rgba(var(--star-rgb), 0.5), transparent),
+    radial-gradient(1px 1px at 93% 12%, rgba(var(--star-rgb), 0.55), transparent),
+    radial-gradient(1.5px 1.5px at 46% 8%, rgba(var(--star-rgb), 0.4), transparent);
+  animation: twinkle 6.5s ease-in-out infinite;
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+/* The premium edge: a lit top hairline plus a shadow wide enough to imply
+   thickness. Same idea as `.lift`, but permanent rather than on hover — for
+   surfaces that are meant to read as raised without being touched. */
+.rise-edge {
+  border: 1px solid var(--line);
+  box-shadow:
+    inset 0 1px 0 0 var(--spec),
+    0 1px 2px var(--shadow-soft),
+    0 22px 50px -30px var(--shadow-deep);
+}
+
+/* Staggered entrance. Set the delay inline with `style={{ animationDelay }}`
+   per child; without it every row arrives at once and the effect is wasted. */
+.rise-in {
+  animation: rise 0.7s var(--ease-cinema) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -700,5 +862,11 @@
   }
   .reveal {
     opacity: 1;
+  }
+  /* The streak and the stars are pure decoration — remove them outright
+     rather than leaving a frozen artifact mid-screen. */
+  .bolt::after,
+  .starfield::before {
+    display: none;
   }
 }

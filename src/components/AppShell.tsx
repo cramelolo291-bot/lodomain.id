@@ -1,6 +1,14 @@
 import { useAuth } from "@/hooks/use-auth";
+import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
-import { Globe, LogOut, MessagesSquare, Server } from "lucide-react";
+import {
+  Globe,
+  LogOut,
+  MessagesSquare,
+  Moon,
+  Server,
+  Sun,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router";
 
@@ -82,6 +90,34 @@ function NavItem({
 }
 
 /**
+ * Light / dark switch.
+ *
+ * One button rather than a menu: there are exactly two themes, and a menu for
+ * two items is a second click for no information. The icon swaps rather than
+ * animating, because the state it reports is binary and should read instantly.
+ */
+function ThemeToggle() {
+  const { theme, toggle } = useTheme();
+  const dark = theme === "dark";
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className="btn-solid relative px-2.5 py-1.5"
+      aria-label={dark ? "Beralih ke mode terang" : "Beralih ke mode gelap"}
+      title={dark ? "Mode terang" : "Mode gelap"}
+    >
+      {dark ? (
+        <Sun className="size-3.5" />
+      ) : (
+        <Moon className="size-3.5" />
+      )}
+    </button>
+  );
+}
+
+/**
  * App chrome. A single floating bar rather than a sidebar: chat is the main
  * surface and the server panel is a peer, not a sub-page.
  */
@@ -98,7 +134,7 @@ export function AppShell({
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
       <header className="z-30 shrink-0 px-3 pt-3 sm:px-5 sm:pt-4">
-        <div className="glass mx-auto flex max-w-[1440px] items-center justify-between gap-3 py-1.5 pl-3.5 pr-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.4),0_18px_40px_-28px_rgba(0,0,0,0.9)]">
+        <div className="glass mx-auto flex max-w-[1440px] items-center justify-between gap-3 py-1.5 pl-3.5 pr-1.5 shadow-[0_1px_2px_var(--shadow-soft),0_18px_40px_-28px_var(--shadow-deep)]">
           <div className="flex items-center gap-5">
             <NavLink to="/web" className="flex items-center gap-2.5 py-1">
               <Logo />
@@ -119,6 +155,7 @@ export function AppShell({
 
           <div className="flex items-center gap-2">
             {right}
+            <ThemeToggle />
             {session && (
               <>
                 <span className="hidden max-w-[190px] truncate pl-1 font-mono text-[11px] text-ink-4 md:inline">
