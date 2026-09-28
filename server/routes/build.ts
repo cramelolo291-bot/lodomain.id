@@ -10,10 +10,12 @@
 
 import { readFile, stat } from "node:fs/promises";
 import { extname } from "node:path";
+import type { IncomingMessage } from "node:http";
+import type { Socket } from "node:net";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { and, eq } from "drizzle-orm";
-import { requireAuth } from "../auth/session";
+import { requireAuth, sessionFromCookieHeader } from "../auth/session";
 import { db } from "../db/client";
 import { projects, projectFiles } from "../db/schema";
 import {
@@ -22,6 +24,7 @@ import {
   safePreviewPath,
 } from "../build/runner";
 import { devServer, proxyToDev, startDev, stopDev, syncDev } from "../build/dev";
+import { tunnelUpgrade } from "../build/tunnel";
 import { params, parseValue } from "../http/validate";
 import { z } from "zod";
 
@@ -209,6 +212,60 @@ build.get("/projects/:project/live/*", async (c) => {
 
   return c.body(upstream.body as unknown as ArrayBuffer);
 });
+
+// ── WebSocket upgrade ──────────────────────────────────────────────────────
+
+/**
+ * Handles a WebSocket upgrade for the live preview.
+ *
+ * HMR clients open one of these, and the HTTP proxy above cannot carry it — an
+ * upgrade becomes two raw sockets that must not be re-parsed. So this runs
+ * before routing, on the socket, and copies bytes.
+ *
+ * It redoes the two checks the HTTP path does: a valid session, and a project
+ * the caller owns. An upgrade that skipped either would be the one hole in the
+ * app that a cookie-less client could walk through.
+ */
+export async function handleLiveUpgrade(
+  request: IncomingMessage,
+  socket: Socket,
+  head: Buffer,
+): Promise<void> {
+  const refuse = (status: string, reason: string) => {
+    if (socket.destroyed) return;
+    socket.end(
+      `HTTP/1.1 ${status}\r\nconnection: close\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: ${Buffer.byteLength(reason)}\r\n\r\n${reason}`,
+    );
+  };
+
+  const url = request.url ?? "";
+  const match = url.match(/^\/api\/projects\/([^/]+)\/live(\/.*)$/);
+  if (!match) {
+    // Not ours. Closing is right: the HTTP server will not route an upgrade.
+    socket.destroy();
+    return;
+  }
+
+  const session = await sessionFromCookieHeader(request.headers.cookie);
+  if (!session) {
+    refuse("401 Unauthorized", "sign in to use the live preview");
+    return;
+  }
+
+  const project = await resolveProject(decodeURIComponent(match[1]!), session.userId);
+  if (!project) {
+    refuse("404 Not Found", "no such project");
+    return;
+  }
+
+  const state = devServer(project.id);
+  if (!state || !state.port) {
+    refuse("503 Service Unavailable", "the dev server is not running");
+    return;
+  }
+
+  tunnelUpgrade(request, socket, head, state.port);
+}
 
 // ── Preview ───────────────────────────────────────────────────────────────
 

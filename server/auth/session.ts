@@ -6,7 +6,7 @@
 
 import { and, eq, gt, lt } from "drizzle-orm";
 import type { Context, MiddlewareHandler } from "hono";
-import { getCookie, setCookie } from "hono/cookie";
+import { setCookie } from "hono/cookie";
 import { db, type Db } from "../db/client";
 import { sessions, users } from "../db/schema";
 import { env, isProd } from "../env";
@@ -19,6 +19,18 @@ export type Session = {
   role: "admin" | "user";
   expiresAt: number;
 };
+
+/** Minimal cookie reader. One name, no decoding games, no dependency. */
+function parseCookie(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() !== name) continue;
+    return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return undefined;
+}
 
 export async function createSession(userId: string): Promise<{
   token: string;
@@ -70,7 +82,20 @@ export function clearSessionCookie(c: Context): void {
 }
 
 export async function readSession(c: Context): Promise<Session | null> {
-  const token = getCookie(c, env.SESSION_COOKIE);
+  return sessionFromCookieHeader(c.req.header("cookie"));
+}
+
+/**
+ * Same lookup, from a raw `Cookie` header.
+ *
+ * Needed for the WebSocket upgrade path, which never becomes a Hono context —
+ * an upgrade is handled on the raw socket before routing. Without this, an
+ * authenticated tunnel would be the one route in the app that skips the check.
+ */
+export async function sessionFromCookieHeader(
+  header: string | undefined,
+): Promise<Session | null> {
+  const token = parseCookie(header, env.SESSION_COOKIE);
   if (!token) return null;
 
   const rows = await db

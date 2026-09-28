@@ -504,6 +504,149 @@ await test("stopAllDev clears every project", async () => {
   await stopAllDev();
 });
 
+// ── WebSocket tunnel ──────────────────────────────────────────────────────
+
+section("an upgrade is tunnelled byte for byte");
+
+await test("the request head is rewritten, not rebuilt by guesswork", async () => {
+  const { rewriteHead } = await import("../server/build/tunnel");
+
+  const raw = [
+    "GET /@vite/client?token=abc HTTP/1.1",
+    "Host: app.example.com",
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+    "Sec-WebSocket-Version: 13",
+  ].join("\r\n");
+
+  const out = rewriteHead(raw, 8794);
+  check("the path is untouched", out.includes("GET /@vite/client?token=abc HTTP/1.1"), out);
+  check("Host points at the upstream", out.includes("Host: 127.0.0.1:8794"), out);
+  check("the old host is gone", !out.includes("app.example.com"), out);
+  check("the upgrade headers survive", out.includes("Upgrade: websocket"));
+  check("the key survives", out.includes("dGhlIHNhbXBsZSBub25jZQ=="));
+});
+
+await test("an upgrade to a dead upstream is refused in-band", async () => {
+  const { tunnelUpgrade } = await import("../server/build/tunnel");
+  const net = await import("node:net");
+
+  // A port that was bound and released, so connecting to it is refused.
+  const dead = net.createServer();
+  const deadPort = await new Promise<number>((resolve) => {
+    dead.listen(0, "127.0.0.1", () => resolve((dead.address() as net.AddressInfo).port));
+  });
+  await new Promise<void>((resolve) => dead.close(() => resolve()));
+
+  // The front door stays up: in production the client is already connected to
+  // this server when the upgrade arrives, and only the upstream is gone. The
+  // 502 is written back down that connection, so it is read on the server's
+  // side of the pair.
+  const chunks: Buffer[] = [];
+  let resolveAnswer: (v: void) => void = () => {};
+  const answered = new Promise<void>((r) => {
+    resolveAnswer = r;
+  });
+
+  // A reset on this socket is expected — the test destroys the client to clean
+  // up — and a socket with no error listener takes the whole process down.
+  const front = net.createServer((s) => {
+    s.on("error", () => {});
+    s.on("data", (b: Buffer) => {
+      chunks.push(b);
+      resolveAnswer();
+    });
+  });
+  const frontPort = await new Promise<number>((resolve) => {
+    front.listen(0, "127.0.0.1", () => resolve((front.address() as net.AddressInfo).port));
+  });
+
+  const client = net.connect(frontPort, "127.0.0.1");
+  client.on("error", () => {});
+  await new Promise<void>((resolve) => client.on("connect", () => resolve()));
+
+  tunnelUpgrade(
+    { url: "/@vite/client", rawHeaders: [], headers: {} } as never,
+    client,
+    Buffer.alloc(0),
+    deadPort,
+  );
+
+  await answered;
+  const answer = Buffer.concat(chunks).toString("utf8");
+  check("it answers with an HTTP status", answer.startsWith("HTTP/1.1 502"), JSON.stringify(answer.slice(0, 80)));
+  check("and says why", answer.includes("dev server unreachable"), JSON.stringify(answer.slice(0, 160)));
+
+  client.destroy();
+  await new Promise<void>((resolve) => front.close(() => resolve()));
+});
+
+await test("bytes survive the tunnel in both directions", async () => {
+  const { tunnelUpgrade } = await import("../server/build/tunnel");
+  const net = await import("node:net");
+
+  // An upstream that completes a WebSocket handshake and then echoes frames.
+  // The handshake and the first frame can arrive in one TCP segment, so the
+  // upgrade head is stripped off and whatever follows is echoed — otherwise a
+  // correct tunnel looks like it dropped the frame.
+  const upstream = net.createServer((s) => {
+    s.on("error", () => {});
+    let upgraded = false;
+    s.on("data", (b: Buffer) => {
+      if (upgraded) {
+        s.write(b);
+        return;
+      }
+      const text = b.toString("latin1");
+      if (!text.includes("Upgrade: websocket")) return;
+      upgraded = true;
+      s.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
+
+      const rest = b.subarray(text.indexOf("\r\n\r\n") + 4);
+      if (rest.length > 0) s.write(rest);
+    });
+  });
+  const upPort = await new Promise<number>((resolve) => {
+    upstream.listen(0, "127.0.0.1", () => resolve((upstream.address() as net.AddressInfo).port));
+  });
+
+  // The client is already connected, as it always is when Node hands over an
+  // upgrade, and it passes its first frame along with the upgrade — the case
+  // the tunnel has to carry or the client hangs until its own timeout.
+  const client = net.connect(upPort, "127.0.0.1");
+  client.on("error", () => {});
+  await new Promise<void>((resolve) => client.on("connect", () => resolve()));
+
+  const firstFrame = Buffer.from([0x81, 0x03, 0x66, 0x6f, 0x6f]);
+  tunnelUpgrade(
+    {
+      url: "/@vite/client",
+      rawHeaders: ["Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="],
+      headers: {},
+    } as never,
+    client,
+    firstFrame,
+    upPort,
+  );
+
+  const seen: string[] = [];
+  client.on("data", (b: Buffer) => seen.push(b.toString("latin1")));
+
+  await new Promise((r) => setTimeout(r, 300));
+  client.write("ping-from-client");
+
+  await new Promise((r) => setTimeout(r, 300));
+  const all = seen.join("");
+
+  check("the handshake came back", all.includes("101 Switching Protocols"), all.slice(0, 120));
+  check("the frame sent with the upgrade was not dropped", all.includes("foo"), all.slice(0, 200));
+  check("later bytes came back", all.includes("ping-from-client"), all.slice(0, 240));
+
+  client.destroy();
+  await new Promise<void>((resolve) => upstream.close(() => resolve()));
+});
+
 // ── The directive the agent emits ─────────────────────────────────────────
 
 section("what the model is allowed to ask for");

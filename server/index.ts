@@ -6,6 +6,8 @@
 // state, then start listening. Failing at boot is better than serving 500s.
 
 import { serve } from "@hono/node-server";
+import type { IncomingMessage } from "node:http";
+import type { Socket } from "node:net";
 import { app } from "./app";
 import { env } from "./env";
 import { assertCurrent, migrate } from "./db/migrate";
@@ -15,6 +17,7 @@ import { pruneMagicLinks } from "./auth/magic-link";
 import { clearExpiredCooldowns, resetOrphans } from "./ollama/pool";
 import { isUp } from "./ollama/client";
 import { stopAllDev } from "./build/dev";
+import { handleLiveUpgrade } from "./routes/build";
 import { log } from "./http/observability";
 
 /** How long a draining request gets before the process exits anyway. */
@@ -22,11 +25,15 @@ const DRAIN_TIMEOUT_MS = 30_000;
 const DRAIN_TICK_MS = 100;
 
 /**
- * What shutdown needs from the listener. @hono/node-server returns a union of
- * an HTTP/1 and an HTTP/2 server; only the shutdown surface is used here, so it
- * is narrowed to exactly that instead of importing both node types.
+ * What shutdown and the upgrade handler need from the listener.
+ * @hono/node-server returns a union of an HTTP/1 and an HTTP/2 server, so the
+ * surface is narrowed to exactly what is used rather than importing both.
  */
-type Closeable = { close: (cb: () => void) => unknown; closeAllConnections?: () => void };
+type Closeable = {
+  close: (cb: () => void) => unknown;
+  closeAllConnections?: () => void;
+  on: (event: "upgrade", handler: (req: IncomingMessage, socket: Socket, head: Buffer) => void) => unknown;
+};
 
 async function boot() {
   console.log("→ checking database");
@@ -67,6 +74,14 @@ async function boot() {
     console.log(`  database        ${env.DATABASE_URL.replace(/:[^:@/]+@/, ":***@")}`);
     console.log(`  ollama          ${env.OLLAMA_URL} ${ollamaUp ? "✓" : "✗"}`);
     console.log(`  openai base     ${env.APP_URL}/v1\n`);
+  });
+
+  // Hot reload opens a WebSocket, which never becomes a Hono request. It is
+  // handled on the raw socket instead — the handler redoes the session and
+  // ownership checks, because an upgrade that skipped them would be the one
+  // route a cookie-less client could walk straight through.
+  server.on("upgrade", (req, socket, head) => {
+    void handleLiveUpgrade(req, socket, head).catch(() => socket.destroy());
   });
 }
 
