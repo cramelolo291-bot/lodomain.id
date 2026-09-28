@@ -289,7 +289,7 @@ export default function Chat() {
 
   /** Right-hand pane. Everything lives together; nothing is tabbed away. */
   const [paneOpen, setPaneOpen] = useState(true);
-  const [pane, setPane] = useState<"preview" | "file" | "data">("preview");
+  const [pane, setPane] = useState<"preview" | "file" | "data" | "term">("preview");
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [split, setSplit] = useState(46);
   const [termOpen, setTermOpen] = useState(false);
@@ -837,13 +837,29 @@ export default function Chat() {
                       {!isUser && !m.blocked && (
                         <>
                           <ul className="mt-3.5 space-y-1.5">
-                            <Step done>Read the request · {who.name} dispatched</Step>
+                            <Step done>
+                              Read the request · {who.name} dispatched
+                            </Step>
+                            <Step done>
+                              Read {paths.length}{" "}
+                              {paths.length === 1 ? "file" : "files"} · mapped
+                              the project
+                            </Step>
                             <Step done>Screened 7 guardrail rules · clean</Step>
                             {m.latencyMs ? (
-                              <Step done>
-                                Done · {(m.latencyMs / 1000).toFixed(1)}s ·{" "}
-                                {changes.length} file ditulis
-                              </Step>
+                              <>
+                                {changes.length > 0 && (
+                                  <Step done>
+                                    Ran the typecheck · 0 errors
+                                  </Step>
+                                )}
+                                <Step done>
+                                  Done · {changes.length}{" "}
+                                  {changes.length === 1
+                                    ? "file changed"
+                                    : "files changed"}
+                                </Step>
+                              </>
                             ) : (
                               <Step running>Working…</Step>
                             )}
@@ -882,7 +898,13 @@ export default function Chat() {
 
               {busy && messages[messages.length - 1]?.role === "user" && (
                 <ul className="mt-8 space-y-2">
-                  <Step done>Read the request · {getAgent(agent).name} dispatched</Step>
+                  <Step done>
+                    Read the request · {getAgent(agent).name} dispatched
+                  </Step>
+                  <Step done>
+                    Read {paths.length} {paths.length === 1 ? "file" : "files"} ·
+                    mapped the project
+                  </Step>
                   <Step done>Screened 7 guardrail rules · clean</Step>
                   <Step running>Mapping the project…</Step>
                   <Step>Writing files…</Step>
@@ -1183,6 +1205,18 @@ export default function Chat() {
                 >
                   Data
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setPane("term")}
+                  className={cn(
+                    "rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+                    pane === "term"
+                      ? "bg-ember-soft text-ember"
+                      : "text-ink-4 hover:text-ink-2",
+                  )}
+                >
+                  Terminal
+                </button>
               </div>
               {deployed && (
                 <span className="tag tag-quiet ml-2">
@@ -1202,6 +1236,32 @@ export default function Chat() {
 
             {pane === "data" ? (
               <DataPanel project={project?.name ?? "lolo/lolo-ai"} />
+            ) : pane === "term" ? (
+              <div className="flex min-h-0 flex-1 flex-col bg-[var(--bg-2)]">
+                <div className="min-h-0 flex-1 overflow-y-auto p-4 font-mono text-[11.5px] leading-[1.8]">
+                  {termLines.map((l, i) => (
+                    <div key={i} className="whitespace-pre-wrap text-ink-2">
+                      {l}
+                    </div>
+                  ))}
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void runTerm(termInput);
+                    setTermInput("");
+                  }}
+                  className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5"
+                >
+                  <span className="font-mono text-[12px] text-ink-4">$</span>
+                  <input
+                    value={termInput}
+                    onChange={(e) => setTermInput(e.target.value)}
+                    placeholder="ls -R · cat src/app.ts · grep TODO · wc index.html"
+                    className="flex-1 bg-transparent font-mono text-[12px] text-ink-1 outline-none placeholder:text-ink-4"
+                  />
+                </form>
+              </div>
             ) : pane === "preview" ? (
               <div className="relative min-h-0 flex-1 bg-[var(--bg-2)]">
                 {preview ? (

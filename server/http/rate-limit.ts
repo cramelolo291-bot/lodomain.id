@@ -74,13 +74,56 @@ export function rateLimit(opts: {
 
 type Next = Parameters<MiddlewareHandler>[1];
 
-/** Caps request bodies so a single POST cannot exhaust memory. */
-export function bodyLimit(bytes: number): MiddlewareHandler {
+/**
+ * Caps request bodies so a single POST cannot exhaust memory.
+ *
+ * `content-length` alone is not enough: it is absent for chunked requests and
+ * can lie. So the declared size is treated as an early rejection only, and the
+ * real enforcement counts bytes as the body is read. The consumed body is put
+ * back so downstream handlers see it unchanged.
+ */
+export function bodyLimit(maxBytes: number): MiddlewareHandler {
   return async (c: Context, next: Next) => {
-    const length = Number(c.req.header("content-length") ?? "0");
-    if (length > bytes) {
+    const declared = Number(c.req.header("content-length") ?? "0");
+    if (Number.isFinite(declared) && declared > maxBytes) {
       return c.json({ error: { message: "Request body too large" } }, 413);
     }
+
+    if (c.req.method === "GET" || c.req.method === "HEAD") {
+      return next();
+    }
+
+    if (!c.req.raw.body) return next();
+
+    const reader = c.req.raw.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value?.byteLength ?? 0;
+      if (total > maxBytes) {
+        // Stop reading and drop the rest; nothing is buffered past the cap.
+        await reader.cancel().catch(() => {});
+        return c.json({ error: { message: "Request body too large" } }, 413);
+      }
+      if (value) chunks.push(value);
+    }
+
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    c.req.raw = new Request(c.req.raw.url, {
+      method: c.req.raw.method,
+      headers: c.req.raw.headers,
+      body: merged,
+    });
+
     return next();
   };
 }

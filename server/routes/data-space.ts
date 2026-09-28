@@ -22,23 +22,26 @@ dataSpace.use("*", requireAuth);
 
 type Value = string | number | boolean | null;
 
-async function ownProject(projectId: string, userId: string) {
-  const rows = await db
-    .select({ id: projects.id, name: projects.name })
-    .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.ownerId, userId)))
-    .limit(1);
-  return rows[0] ?? null;
-}
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Finds the caller's default project when the client sends a name, not a uuid. */
+/**
+ * Resolves the caller's project from either a uuid or its name. The workspace
+ * UI addresses projects by name, so every route has to accept both.
+ *
+ * The shape check is not optional: `projects.id` is a uuid column, and
+ * comparing it to "lolo-app" raises `invalid input syntax for type uuid`
+ * before the name fallback is ever reached.
+ */
 async function resolveProject(idOrName: string, userId: string) {
-  const byId = await db
-    .select({ id: projects.id, name: projects.name })
-    .from(projects)
-    .where(and(eq(projects.id, idOrName), eq(projects.ownerId, userId)))
-    .limit(1);
-  if (byId[0]) return byId[0];
+  if (UUID.test(idOrName)) {
+    const byId = await db
+      .select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .where(and(eq(projects.id, idOrName), eq(projects.ownerId, userId)))
+      .limit(1);
+    if (byId[0]) return byId[0];
+  }
 
   const byName = await db
     .select({ id: projects.id, name: projects.name })
@@ -52,7 +55,7 @@ async function resolveProject(idOrName: string, userId: string) {
 
 dataSpace.get("/projects/:project/tables", async (c) => {
   const { userId } = c.get("session");
-  const project = await ownProject(c.req.param("project"), userId);
+  const project = await resolveProject(c.req.param("project"), userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const tables = await db
@@ -138,7 +141,7 @@ dataSpace.post("/projects/:project/tables", async (c) => {
 
 dataSpace.delete("/projects/:project/tables/:table", async (c) => {
   const { userId } = c.get("session");
-  const project = await ownProject(c.req.param("project"), userId);
+  const project = await resolveProject(c.req.param("project"), userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const found = await db
@@ -171,7 +174,7 @@ async function findTable(projectId: string, name: string) {
 
 dataSpace.post("/projects/:project/tables/:table/rows", async (c) => {
   const { userId } = c.get("session");
-  const project = await ownProject(c.req.param("project"), userId);
+  const project = await resolveProject(c.req.param("project"), userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const table = await findTable(project.id, c.req.param("table"));
@@ -211,7 +214,7 @@ dataSpace.post("/projects/:project/tables/:table/rows", async (c) => {
 
 dataSpace.patch("/projects/:project/tables/:table/rows/:rowId", async (c) => {
   const { userId } = c.get("session");
-  const project = await ownProject(c.req.param("project"), userId);
+  const project = await resolveProject(c.req.param("project"), userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const table = await findTable(project.id, c.req.param("table"));
@@ -251,7 +254,7 @@ dataSpace.patch("/projects/:project/tables/:table/rows/:rowId", async (c) => {
 
 dataSpace.delete("/projects/:project/tables/:table/rows/:rowId", async (c) => {
   const { userId } = c.get("session");
-  const project = await ownProject(c.req.param("project"), userId);
+  const project = await resolveProject(c.req.param("project"), userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const table = await findTable(project.id, c.req.param("table"));
@@ -287,7 +290,7 @@ dataSpace.delete("/projects/:project/tables/:table/rows/:rowId", async (c) => {
  */
 dataSpace.post("/projects/:project/query", async (c) => {
   const { userId } = c.get("session");
-  const project = await ownProject(c.req.param("project"), userId);
+  const project = await resolveProject(c.req.param("project"), userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const body = (await c.req.json().catch(() => ({}))) as { sql?: string };

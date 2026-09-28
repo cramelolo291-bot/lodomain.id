@@ -10,6 +10,7 @@ import "./index.css";
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Chat = lazy(() => import("./pages/Chat.tsx"));
+const Web = lazy(() => import("./pages/Web.tsx"));
 const Server = lazy(() => import("./pages/Server.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
@@ -110,7 +111,7 @@ createRoot(document.getElementById("root")!).render(
         <Suspense fallback={<RouteLoading />}>
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/auth" element={<AuthPage redirectAfterAuth="/chat" />} />
+            <Route path="/auth" element={<AuthPage redirectAfterAuth="/web" />} />
             <Route
               path="/chat"
               element={
@@ -121,6 +122,22 @@ createRoot(document.getElementById("root")!).render(
             />
             <Route
               path="/chat/:id"
+              element={
+                <RequireAuth>
+                  <Chat />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/web"
+              element={
+                <RequireAuth>
+                  <Web />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/web/:id"
               element={
                 <RequireAuth>
                   <Chat />

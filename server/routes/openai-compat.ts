@@ -8,16 +8,21 @@
 // Auth is `Authorization: Bearer sk-lolo-…`, checked against the hashed keys in
 // the database.
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/client";
 import { apiKeys } from "../db/schema";
 import { env } from "../env";
-import { verifyApiKey } from "../auth/tokens";
-import { listModels } from "../ollama/client";
-import { chat, chatStream } from "../ollama/client";
+import { hashToken } from "../auth/tokens";
+import { chat, chatStream, listModels } from "../ollama/client";
 import { MAX_MODELS, getLocalModel } from "../ollama/models";
 import { getAgent } from "../../src/lib/catalog";
+
+declare module "hono" {
+  interface ContextVariableMap {
+    keyUserId: string;
+  }
+}
 
 export const openai = new Hono();
 
@@ -25,7 +30,7 @@ async function authorise(header: string | undefined): Promise<string | null> {
   const secret = header?.replace(/^Bearer\s+/i, "").trim();
   if (!secret) return null;
 
-  const hash = (await import("../auth/tokens")).hashToken(secret);
+  const hash = hashToken(secret);
   const rows = await db
     .select({ id: apiKeys.id, userId: apiKeys.userId })
     .from(apiKeys)
@@ -42,30 +47,30 @@ async function authorise(header: string | undefined): Promise<string | null> {
   return rows[0].userId;
 }
 
+/**
+ * Authentication is applied per handler rather than as a router-wide
+ * middleware. This router is mounted at `/`, so a `use("*")` here would guard
+ * every path in the app — including the frontend, which would then serve 401 to
+ * every visitor.
+ */
+function authed<Env extends { Variables: { keyUserId: string } }>(
+  handler: (c: import("hono").Context<Env>) => Promise<Response> | Response,
+) {
+  return async (c: import("hono").Context<Env>) => {
+    const userId = await authorise(c.req.header("authorization"));
+    if (!userId) {
+      return c.json(error("Invalid or missing API key", "invalid_request_error", 401), 401);
+    }
+    c.set("keyUserId", userId);
+    return handler(c);
+  };
+}
+
 function error(message: string, type: string, status: 400 | 401 | 404 | 429 | 502 = 400) {
   return { error: { message, type, param: null, code: null } };
 }
 
-openai.use("*", async (c, next) => {
-  const key = c.req.header("authorization");
-  if (!key) {
-    return c.json(error("Missing Authorization header", "invalid_request_error", 401), 401);
-  }
-  const userId = await authorise(key);
-  if (!userId) {
-    return c.json(error("Invalid API key", "invalid_request_error", 401), 401);
-  }
-  c.set("session", {
-    userId,
-    email: "",
-    name: "",
-    role: "user" as const,
-    expiresAt: 0,
-  });
-  await next();
-});
-
-openai.get("/v1/models", async (c) => {
+openai.get("/v1/models", authed(async (c) => {
   let installed: string[] = [];
   try {
     installed = (await listModels()).map((m) => m.name);
@@ -88,7 +93,7 @@ openai.get("/v1/models", async (c) => {
       };
     }),
   });
-});
+}));
 
 type ChatBody = {
   model?: string;
@@ -100,7 +105,7 @@ type ChatBody = {
   agent?: string;
 };
 
-openai.post("/v1/chat/completions", async (c) => {
+openai.post("/v1/chat/completions", authed(async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as ChatBody;
 
   if (!body.model || !body.messages?.length) {
@@ -203,9 +208,10 @@ openai.post("/v1/chat/completions", async (c) => {
       connection: "keep-alive",
     },
   });
-});
+}));
 
 /** What a client can expect, mirroring the gateway's advertised surface. */
+/** Unauthenticated on purpose: it advertises paths and nothing secret. */
 openai.get("/v1", (c) =>
   c.json({
     service: "lolo-ai",
@@ -220,5 +226,3 @@ openai.get("/v1", (c) =>
     ],
   }),
 );
-
-export type { sql };

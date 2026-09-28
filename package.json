@@ -17,7 +17,9 @@
     "test:turn": "tsx scripts/test-project.ts",
     "test:server": "tsx scripts/test-server.ts",
     "test:schema": "tsx scripts/test-schema.ts",
-    "test": "npm run test:data && npm run test:turn && npm run test:server && npm run test:schema"
+    "test:sql": "tsx scripts/test-sql.ts",
+    "test:api": "tsx scripts/test-api.ts",
+    "test": "npm run test:data && npm run test:turn && npm run test:server && npm run test:schema && npm run test:sql && npm run test:api"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
@@ -80,6 +82,8 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",

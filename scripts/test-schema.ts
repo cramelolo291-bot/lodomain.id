@@ -212,7 +212,31 @@ check(
   uniq.length >= 15 && declared.length >= 15,
   `${uniq.length}/${declared.length}`,
 );
-check("the OpenAI surface is mounted", /app\.route\("\/", openai\)/.test(await readFile("server/index.ts", "utf8")));
+
+// The mount lives in app.ts, not index.ts — index.ts is only the boot sequence.
+const appSource = await readFile("server/app.ts", "utf8");
+const openaiSource = await readFile("server/routes/openai-compat.ts", "utf8");
+
+check("the OpenAI surface is mounted", /app\.route\("\/", openai\)/.test(appSource));
+
+// Health has to be registered before the routers that mount `use("*",
+// requireAuth)`, or it ends up behind a session cookie and a load balancer
+// cannot reach it.
+const healthAt = appSource.indexOf('app.get("/api/health"');
+const guardsAt = appSource.indexOf('app.route("/api", routes)');
+check(
+  "health is registered before the guarded routers",
+  healthAt !== -1 && guardsAt !== -1 && healthAt < guardsAt,
+  "health would sit behind requireAuth",
+);
+
+// A `use("*")` on a router mounted at `/` guards the whole application, which
+// would serve 401 to every frontend page.
+check(
+  "the OpenAI router does not guard globally",
+  !openaiSource.includes('openai.use("*"'),
+  "a global guard here would 401 every frontend page",
+);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -1,6 +1,6 @@
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import { LogOut, MessagesSquare, Server } from "lucide-react";
+import { Globe, LogOut, MessagesSquare, Server } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router";
 
@@ -65,13 +65,14 @@ export function AppShell({
       <header className="z-30 shrink-0 px-3 pt-3 sm:px-5 sm:pt-4">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3 rounded-full border border-border bg-background/75 p-1.5 pl-4 backdrop-blur-xl">
           <div className="flex items-center gap-4">
-            <NavLink to="/chat" className="flex items-center gap-2.5">
+            <NavLink to="/web" className="flex items-center gap-2.5">
               <Logo />
               <span className="text-[14px] font-medium tracking-tight text-ink-1">
                 Lolo AI
               </span>
             </NavLink>
             <nav className="hidden items-center gap-1 sm:flex">
+              <NavItem to="/web" icon={Globe} label="Web" />
               <NavItem to="/chat" icon={MessagesSquare} label="Chat" />
               <NavItem to="/server" icon={Server} label="Server" />
             </nav>
