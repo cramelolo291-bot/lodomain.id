@@ -1,13 +1,11 @@
 import { AppShell } from "@/components/AppShell";
-import { api, AGENTS, MODELS, getAgent } from "@/lib/api";
+import { api, AGENTS, MODELS, getAgent, getModel } from "@/lib/api";
 import { GUARDRAIL_LABELS } from "@/lib/guardrails";
 import { cn } from "@/lib/utils";
 import {
   ArrowUp,
   Check,
-  Cpu,
   History,
-  MessageSquare,
   Plus,
   ShieldAlert,
   Trash2,
@@ -16,15 +14,14 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-/** Minimal markdown: enough for bold, inline code, and fenced blocks. */
+/** Minimal markdown: bold, inline code, and fenced blocks. Enough, no more. */
 function renderBody(text: string) {
-  const blocks = text.split(/```/);
-  return blocks.map((block, i) => {
+  return text.split(/```/).map((block, i) => {
     if (i % 2 === 1) {
       return (
         <pre
           key={i}
-          className="scrollbar-thin my-3 overflow-x-auto rounded-lg border border-border bg-[var(--bg-2)] p-3.5 font-mono text-[12.5px] leading-relaxed text-ink-2"
+          className="scrollbar-thin my-3 overflow-x-auto rounded-lg border border-border bg-[var(--bg-2)] p-4 font-mono text-[12.5px] leading-relaxed text-ink-2"
         >
           {block.trim()}
         </pre>
@@ -34,48 +31,50 @@ function renderBody(text: string) {
       <div key={i} className="space-y-2.5">
         {block.split("\n").map((line, j) => {
           if (!line.trim()) return null;
-          const isBullet = /^\s*[-*]\s/.test(line);
           const heading = /^\s*\*\*(.+?)\*\*/.exec(line);
+          const bullet = /^\s*[-*]\s/.test(line);
 
           const inline = (value: string) =>
-            value.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((part, k) => {
-              if (part.startsWith("`") && part.endsWith("`")) {
+            value.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g).map((p, k) => {
+              if (p.startsWith("`") && p.endsWith("`"))
                 return (
                   <code
                     key={k}
-                    className="rounded border border-border bg-white/5 px-1 py-0.5 font-mono text-[12px] text-cool"
+                    className="rounded border border-border bg-surface-2 px-1 py-0.5 font-mono text-[12px] text-ember"
                   >
-                    {part.slice(1, -1)}
+                    {p.slice(1, -1)}
                   </code>
                 );
-              }
-              if (part.startsWith("**") && part.endsWith("**")) {
+              if (p.startsWith("**") && p.endsWith("**"))
                 return (
                   <strong key={k} className="font-semibold text-ink-1">
-                    {part.slice(2, -2)}
+                    {p.slice(2, -2)}
                   </strong>
                 );
-              }
-              return <span key={k}>{part}</span>;
+              if (p.startsWith("*") && p.endsWith("*"))
+                return (
+                  <em key={k} className="italic text-ember">
+                    {p.slice(1, -1)}
+                  </em>
+                );
+              return <span key={k}>{p}</span>;
             });
 
-          if (isBullet) {
+          if (heading)
             return (
-              <p key={j} className="flex gap-2.5 pl-0.5">
+              <p key={j} className="pt-1.5 text-[15px] font-semibold text-ink-1">
+                {heading[1]}
+              </p>
+            );
+          if (bullet)
+            return (
+              <p key={j} className="flex gap-2.5">
                 <span className="mt-[9px] size-1 shrink-0 rounded-full bg-ink-4" />
                 <span className="flex-1">{inline(line.replace(/^\s*[-*]\s/, ""))}</span>
               </p>
             );
-          }
-          if (heading) {
-            return (
-              <p key={j} className="pt-1 text-[15px] font-semibold text-ink-1">
-                {heading[1]}
-              </p>
-            );
-          }
           return (
-            <p key={j} className="leading-relaxed">
+            <p key={j} className="leading-[1.75]">
               {inline(line)}
             </p>
           );
@@ -92,7 +91,6 @@ function AgentPicker({
   value: string;
   onChange: (key: string) => void;
 }) {
-  const active = getAgent(value);
   return (
     <div className="flex flex-wrap gap-1.5">
       {AGENTS.map((a) => (
@@ -102,20 +100,15 @@ function AgentPicker({
           onClick={() => onChange(a.key)}
           title={a.description}
           className={cn(
-            "rounded-full border px-2.5 py-1 font-mono text-[11px] transition-all",
+            "rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors",
             a.key === value
-              ? a.accent === "cool"
-                ? "border-[var(--accent-cool)]/40 bg-cool-soft text-cool"
-                : "border-[var(--accent-warm)]/40 bg-warm-soft text-warm"
-              : "border-border text-ink-4 hover:border-[var(--border-strong)] hover:text-ink-2",
+              ? "border-ember/50 bg-ember-soft text-ember"
+              : "border-border text-ink-4 hover:border-[rgba(244,241,234,0.2)] hover:text-ink-2",
           )}
         >
           {a.name}
         </button>
       ))}
-      <span className="self-center pl-1 text-[11px] text-ink-4">
-        {active.tagline}
-      </span>
     </div>
   );
 }
@@ -125,23 +118,21 @@ function ModelPicker({
   onChange,
 }: {
   value: string;
-  onChange: (tag: string) => void;
+  onChange: (id: string) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {MODELS.map((m) => (
         <button
-          key={m.tag}
+          key={m.id}
           type="button"
-          onClick={() => onChange(m.tag)}
-          title={`${m.bestFor} · ${m.vramGb}GB VRAM`}
+          onClick={() => onChange(m.id)}
+          title={`${m.vendor} · ${m.bestFor}`}
           className={cn(
-            "rounded-full border px-2.5 py-1 font-mono text-[11px] transition-all",
-            m.tag === value
-              ? m.accent === "cool"
-                ? "border-[var(--accent-cool)]/40 bg-cool-soft text-cool"
-                : "border-[var(--accent-warm)]/40 bg-warm-soft text-warm"
-              : "border-border text-ink-4 hover:border-[var(--border-strong)] hover:text-ink-2",
+            "rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors",
+            m.id === value
+              ? "border-ember/50 bg-ember-soft text-ember"
+              : "border-border text-ink-4 hover:border-[rgba(244,241,234,0.2)] hover:text-ink-2",
           )}
         >
           {m.label}
@@ -163,29 +154,26 @@ export default function Chat() {
     Awaited<ReturnType<typeof api.listMessages>>
   >([]);
   const [agent, setAgent] = useState("lolo");
-  const [model, setModel] = useState(MODELS[0]!.tag);
+  const [model, setModel] = useState(MODELS[0]!.id);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [showList, setShowList] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Open the newest run on first load, or start one.
   useEffect(() => {
     void (async () => {
       const rows = await api.listConversations();
       setConversations(rows);
       const target = id ?? rows[0]?.id;
-      if (target) {
-        setActiveId(target);
-        const conv = rows.find((c) => c.id === target);
-        if (conv) {
-          setAgent(conv.agent);
-          setModel(conv.model);
-        }
-        setMessages(await api.listMessages(target));
+      if (!target) return;
+      setActiveId(target);
+      const conv = rows.find((c) => c.id === target);
+      if (conv) {
+        setAgent(conv.agent);
+        setModel(conv.model);
       }
+      setMessages(await api.listMessages(target));
     })();
   }, [id]);
 
@@ -193,23 +181,23 @@ export default function Chat() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, busy]);
 
-  const activeConv = useMemo(
-    () => conversations.find((c) => c.id === activeId),
-    [conversations, activeId],
-  );
+  const activeModel = useMemo(() => getModel(model), [model]);
 
-  const openConversation = useCallback(async (target: string) => {
-    setActiveId(target);
-    setShowList(false);
-    const rows = await api.listConversations();
-    const conv = rows.find((c) => c.id === target);
-    if (conv) {
-      setAgent(conv.agent);
-      setModel(conv.model);
-    }
-    setMessages(await api.listMessages(target));
-    navigate(`/chat/${target}`, { replace: true });
-  }, [navigate]);
+  const openConversation = useCallback(
+    async (target: string) => {
+      setActiveId(target);
+      setShowList(false);
+      const rows = await api.listConversations();
+      const conv = rows.find((c) => c.id === target);
+      if (conv) {
+        setAgent(conv.agent);
+        setModel(conv.model);
+      }
+      setMessages(await api.listMessages(target));
+      navigate(`/chat/${target}`, { replace: true });
+    },
+    [navigate],
+  );
 
   const newRun = useCallback(async () => {
     const c = await api.createConversation(agent, model);
@@ -235,7 +223,6 @@ export default function Chat() {
 
     setDraft("");
     setBusy(true);
-    // Show the user's message immediately; the server round-trip is the pause.
     setMessages((prev) => [
       ...prev,
       {
@@ -268,41 +255,42 @@ export default function Chat() {
     }
   }, [activeId, agent, busy, draft, model, navigate]);
 
-  const remove = useCallback(async (target: string) => {
-    await api.deleteConversation(target);
-    const rows = await api.listConversations();
-    setConversations(rows);
-    if (target === activeId) {
+  const remove = useCallback(
+    async (target: string) => {
+      await api.deleteConversation(target);
+      const rows = await api.listConversations();
+      setConversations(rows);
+      if (target !== activeId) return;
       if (rows[0]) await openConversation(rows[0].id);
       else {
         setActiveId(null);
         setMessages([]);
         navigate("/chat", { replace: true });
       }
-    }
-  }, [activeId, navigate, openConversation]);
+    },
+    [activeId, navigate, openConversation],
+  );
 
   const pickAgent = (key: string) => {
     setAgent(key);
     if (activeId) void api.updateConversation(activeId, { agent: key });
   };
 
-  const pickModel = (tag: string) => {
-    setModel(tag);
-    if (activeId) void api.updateConversation(activeId, { model: tag });
+  const pickModel = (id: string) => {
+    setModel(id);
+    if (activeId) void api.updateConversation(activeId, { model: id });
   };
 
   return (
     <AppShell>
-      <div className="mx-auto flex h-full max-w-[1400px] gap-3 px-3 pt-3 sm:px-5 sm:pt-4">
-        {/* Conversation rail */}
+      <div className="mx-auto flex h-full max-w-[1440px] gap-3 px-3 pt-3 sm:px-5 sm:pt-4">
         <aside
           className={cn(
-            "panel scrollbar-thin hidden w-64 shrink-0 flex-col overflow-y-auto p-3 lg:flex",
+            "scrollbar-thin hidden w-64 shrink-0 flex-col overflow-y-auto lg:flex",
             showList && "flex",
           )}
         >
-          <button type="button" onClick={newRun} className="btn-primary w-full justify-center">
+          <button type="button" onClick={newRun} className="btn-primary w-full">
             <Plus className="size-4" />
             Run baru
           </button>
@@ -312,10 +300,10 @@ export default function Chat() {
               <div
                 key={c.id}
                 className={cn(
-                  "group flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors",
+                  "group flex items-center gap-2 rounded-lg border px-2.5 py-2.5 transition-colors",
                   c.id === activeId
-                    ? "border-[var(--accent-cool)]/25 bg-cool-soft"
-                    : "border-transparent hover:bg-white/5",
+                    ? "border-ember/25 bg-ember-soft"
+                    : "border-transparent hover:bg-surface-2",
                 )}
               >
                 <button
@@ -331,15 +319,15 @@ export default function Chat() {
                   >
                     {c.title}
                   </span>
-                  <span className="font-mono text-[10px] text-ink-4">
-                    {getAgent(c.agent).name} · {c.model}
+                  <span className="truncate font-mono text-[10px] text-ink-4">
+                    {getAgent(c.agent).name}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => void remove(c.id)}
                   aria-label="Hapus percakapan"
-                  className="shrink-0 rounded p-1 text-ink-4 opacity-0 transition-opacity group-hover:opacity-100 hover:text-warm"
+                  className="shrink-0 rounded p-1 text-ink-4 opacity-0 transition-opacity group-hover:opacity-100 hover:text-ember"
                 >
                   <Trash2 className="size-3.5" />
                 </button>
@@ -348,49 +336,51 @@ export default function Chat() {
           </div>
         </aside>
 
-        {/* Conversation */}
         <section className="flex min-w-0 flex-1 flex-col">
           <div className="mb-3 flex items-center gap-2 lg:hidden">
-            <button type="button" onClick={() => setShowList((s) => !s)} className="btn-ghost">
+            <button
+              type="button"
+              onClick={() => setShowList((s) => !s)}
+              className="btn-ghost"
+            >
               <History className="size-4" />
               Riwayat
             </button>
           </div>
 
-          <div className="scrollbar-thin min-h-0 flex-1 space-y-6 overflow-y-auto pr-1 pb-4">
+          <div className="scrollbar-thin min-h-0 flex-1 space-y-7 overflow-y-auto pb-4 pr-1">
             {messages.length === 0 && (
-              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+              <div className="flex h-full flex-col items-center justify-center px-4 text-center">
                 <div className="max-w-lg">
-                  <p className="eyebrow mb-5">Lolo AI · run baru</p>
-                  <h1 className="text-4xl font-bold tracking-tight text-ink-1">
-                    Mau ngerjain apa hari ini?
+                  <p className="eyebrow">run baru</p>
+                  <h1 className="display mt-5 text-[34px] text-ink-1 sm:text-[42px]">
+                    Mau ngerjain apa?
                   </h1>
-                  <p className="mt-4 text-[15px] leading-relaxed text-ink-3">
-                    Empat spesialis, satu pool model lokal. Lolo yang nyusun,
-                    spesialis lain yang eksekusi — dan setiap giliran Leave jejak
-                    di tab Trace.
+                  <p className="mt-4 text-[15px] leading-[1.7] text-ink-2">
+                    Pilih spesialis, pilih model, lalu ngobrol. Tiap giliran
+                    meninggalkan jejak di tab Trace.
                   </p>
-                  <div className="mt-7 grid gap-2 sm:grid-cols-2">
+                  <div className="mt-8 grid gap-2 sm:grid-cols-2">
                     {AGENTS.map((a) => (
                       <button
                         key={a.key}
                         type="button"
                         onClick={() => setAgent(a.key)}
-                        className="panel group p-3.5 text-left transition-all hover:-translate-y-0.5 hover:border-[var(--border-strong)]"
+                        className="panel group p-4 text-left transition-colors hover:bg-surface-2"
                       >
                         <div className="flex items-center gap-2">
                           <span
                             className={cn(
                               "size-1.5 rounded-full",
-                              a.accent === "cool" ? "bg-cool" : "bg-warm",
+                              a.accent === "warm" ? "bg-ember" : "bg-[#9db4a8]",
                             )}
                           />
-                          <span className="text-[13px] font-semibold text-ink-1">
+                          <span className="text-[13px] font-medium text-ink-1">
                             {a.name}
                           </span>
                         </div>
-                        <p className="mt-1.5 text-[12px] leading-relaxed text-ink-4">
-                          {a.description}
+                        <p className="mt-2 text-[12px] leading-[1.6] text-ink-4">
+                          {a.tagline}
                         </p>
                       </button>
                     ))}
@@ -405,17 +395,20 @@ export default function Chat() {
               return (
                 <article
                   key={m.id}
-                  className={cn("flex flex-col", isUser ? "items-end" : "items-start")}
+                  className={cn(
+                    "flex flex-col",
+                    isUser ? "items-end" : "items-start",
+                  )}
                 >
                   {!isUser && (
-                    <div className="mb-2 flex items-center gap-2">
+                    <div className="mb-2.5 flex flex-wrap items-center gap-2">
                       <span
                         className={cn(
                           "size-1.5 rounded-full",
-                          who.accent === "cool" ? "bg-cool" : "bg-warm",
+                          who.accent === "warm" ? "bg-ember" : "bg-[#9db4a8]",
                         )}
                       />
-                      <span className="text-[12px] font-semibold text-ink-2">
+                      <span className="text-[12.5px] font-medium text-ink-2">
                         {who.name}
                       </span>
                       {m.model && (
@@ -424,7 +417,7 @@ export default function Chat() {
                         </span>
                       )}
                       {m.guardrail && (
-                        <span className="tag tag-warm">
+                        <span className="tag">
                           <ShieldAlert className="size-3" />
                           {GUARDRAIL_LABELS[m.guardrail]}
                         </span>
@@ -434,16 +427,16 @@ export default function Chat() {
 
                   <div
                     className={cn(
-                      "max-w-[85%] rounded-xl border px-4 py-3 text-[14.5px] leading-relaxed",
+                      "max-w-[88%] rounded-[14px] border px-4 py-3.5 text-[14.5px]",
                       isUser
-                        ? "border-[var(--accent-cool)]/25 bg-cool-soft text-ink-1"
+                        ? "border-ember/25 bg-ember-soft text-ink-1"
                         : m.blocked
-                          ? "border-[var(--accent-warm)]/30 bg-warm-soft text-ink-2"
-                          : "border-border bg-[var(--surface-1)] text-ink-2",
+                          ? "border-border bg-surface-2 text-ink-2"
+                          : "border-border bg-surface-1 text-ink-2",
                     )}
                   >
                     {m.blocked ? (
-                      <p className="text-[14px] text-ink-2">{m.content}</p>
+                      <p className="text-[14px] leading-[1.7]">{m.content}</p>
                     ) : (
                       renderBody(m.content)
                     )}
@@ -462,14 +455,13 @@ export default function Chat() {
 
             {busy && (
               <div className="flex items-center gap-2.5 pl-1 text-[13px] text-ink-4">
-                <Cpu className="size-3.5 animate-pulse" />
+                <span className="size-1.5 animate-pulse rounded-full bg-ember" />
                 {getAgent(agent).name} sedang mikir…
               </div>
             )}
             <div ref={endRef} />
           </div>
 
-          {/* Composer */}
           <div className="shrink-0 border-t border-border pt-3 pb-4">
             <div className="mb-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
               <AgentPicker value={agent} onChange={pickAgent} />
@@ -477,9 +469,8 @@ export default function Chat() {
               <ModelPicker value={model} onChange={pickModel} />
             </div>
 
-            <div className="panel flex items-end gap-2 p-2 transition-colors focus-within:border-[var(--accent-cool)]">
+            <div className="panel flex items-end gap-2 p-2 transition-colors focus-within:border-ember/60">
               <textarea
-                ref={textareaRef}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -497,28 +488,24 @@ export default function Chat() {
                 onClick={() => void send()}
                 disabled={!draft.trim() || busy}
                 aria-label="Kirim"
-                className="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-cool text-background transition-all hover:bg-[var(--accent-cool-hover)] disabled:opacity-35"
+                className="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-ember text-[#17120f] transition-all hover:bg-[var(--accent-warm-hover)] disabled:opacity-35"
               >
-                {busy ? (
-                  <X className="size-4" />
-                ) : (
-                  <ArrowUp className="size-4" />
-                )}
+                {busy ? <X className="size-4" /> : <ArrowUp className="size-4" />}
               </button>
             </div>
 
-            <p className="mt-2 flex flex-wrap items-center gap-x-3 font-mono text-[10px] text-ink-4">
+            <p className="mt-2 flex flex-wrap items-center gap-x-4 font-mono text-[10px] text-ink-4">
               <span>Enter kirim · Shift+Enter baris baru</span>
               <span className="inline-flex items-center gap-1">
                 <Check className="size-3" />
                 guardrail aktif
               </span>
-              {activeConv && (
-                <span className="inline-flex items-center gap-1">
-                  <MessageSquare className="size-3" />
-                  {messages.length} pesan
-                </span>
-              )}
+              <span className="text-ink-4/70">
+                {activeModel.vendor} ·{" "}
+                {activeModel.efforts.length > 0
+                  ? `${activeModel.efforts.length} effort didukung`
+                  : "effort dibuang"}
+              </span>
             </p>
           </div>
         </section>

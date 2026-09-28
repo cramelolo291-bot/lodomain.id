@@ -1,7 +1,7 @@
 /* DO NOT CHANGE */
 /* Font import has to lead the file: CSS drops any @import that appears after
    an at-rule, and @theme is an at-rule. */
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @custom-variant dark (&:is(.dark *));
@@ -44,90 +44,83 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Lolo AI brand tokens — from the xiaopu web-design dark editorial system */
-  --color-surface-1: var(--surface-1);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
-  --color-cool: var(--accent-cool);
-  --color-cool-soft: var(--accent-cool-soft);
-  --color-warm: var(--accent-warm);
-  --color-warm-soft: var(--accent-warm-soft);
+  /* Lolo AI tokens — one accent, everything else neutral */
   --color-ink-1: var(--text-1);
   --color-ink-2: var(--text-2);
   --color-ink-3: var(--text-3);
   --color-ink-4: var(--text-4);
-  --color-line: var(--border-strong);
+  --color-ember: var(--accent-warm);
+  --color-ember-soft: var(--accent-warm-soft);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
   --font-sans: var(--font-ui);
-  --font-serif: var(--font-serif);
+  --font-serif: var(--font-display);
   --font-mono: var(--font-mono);
 }
 
+/* One accent, warm neutrals. Everything else is a shade of the background —
+   that restraint is the whole point, so resist adding a second hue. */
 :root {
-  --radius: 0.75rem;
+  --radius: 0.875rem;
 
-  /* Surfaces — "an open dark technical manual", not a neon product */
-  --bg: #0a0b0e;
-  --surface-1: #111217;
-  --surface-2: #171921;
-  --surface-3: #1f222d;
+  --bg: #100f0d;
+  --bg-2: #0a0908;
+  --surface-1: #191715;
+  --surface-2: #201e1b;
+  --surface-3: #2b2824;
 
-  /* Text — four levels of hierarchy */
-  --text-1: #ebecef;
-  --text-2: #c6c9d2;
-  --text-3: #8d909c;
-  --text-4: #60636f;
+  --text-1: #f4f1ea;
+  --text-2: #b5aea2;
+  --text-3: #837c70;
+  --text-4: #5b554c;
 
-  /* Accents — cool teal (precision) + warm orange (temperature) */
-  --accent-cool: #5eead4;
-  --accent-cool-hover: #8cf5e3;
-  --accent-cool-soft: rgba(94, 234, 212, 0.12);
-  --accent-warm: #fb923c;
-  --accent-warm-soft: rgba(251, 146, 60, 0.12);
-  --gradient-key: linear-gradient(135deg, #5eead4 0%, #fb923c 100%);
-  --bg-rgb: 10, 11, 14;
-  --accent-cool-rgb: 94, 234, 212;
-  --accent-warm-rgb: 251, 146, 60;
+  --accent-warm: #d97757;
+  --accent-warm-hover: #e2896a;
+  --accent-warm-soft: rgba(217, 119, 87, 0.13);
+  --accent-cool: #9db4a8;
+  --accent-cool-soft: rgba(157, 180, 168, 0.12);
+  --ember-rgb: 217, 119, 87;
 
-  --font-ui: "DM Sans", "Noto Sans SC", system-ui, -apple-system, "Segoe UI",
-    Roboto, sans-serif;
-  --font-serif: "Instrument Serif", "Noto Serif SC", Georgia, serif;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --ease-cinema: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* shadcn contract, mapped onto the tokens above */
   --background: var(--bg);
   --foreground: var(--text-1);
   --card: var(--surface-1);
   --card-foreground: var(--text-1);
   --popover: var(--surface-1);
   --popover-foreground: var(--text-1);
-  --primary: var(--accent-cool);
-  --primary-foreground: var(--bg);
+  --primary: var(--accent-warm);
+  --primary-foreground: #17120f;
   --secondary: var(--surface-2);
   --secondary-foreground: var(--text-1);
   --muted: var(--surface-2);
   --muted-foreground: var(--text-3);
-  --accent: var(--accent-cool-soft);
-  --accent-foreground: var(--accent-cool);
-  --destructive: #f87171;
-  --border: rgba(67, 70, 81, 0.5);
-  --input: rgba(67, 70, 81, 0.65);
-  --ring: var(--accent-cool);
-  --chart-1: #5eead4;
-  --chart-2: #fb923c;
-  --chart-3: #8b8cf7;
-  --chart-4: #a3e635;
-  --chart-5: #f472b6;
+  --accent: var(--accent-warm-soft);
+  --accent-foreground: var(--accent-warm);
+  --destructive: #d96a5a;
+  --border: rgba(244, 241, 234, 0.09);
+  --input: rgba(244, 241, 234, 0.12);
+  --ring: var(--accent-warm);
+  --chart-1: #d97757;
+  --chart-2: #9db4a8;
+  --chart-3: #b8a68c;
+  --chart-4: #8a9bb0;
+  --chart-5: #a8937f;
   --sidebar: var(--surface-1);
   --sidebar-foreground: var(--text-2);
-  --sidebar-primary: var(--accent-cool);
-  --sidebar-primary-foreground: var(--bg);
+  --sidebar-primary: var(--accent-warm);
+  --sidebar-primary-foreground: #17120f;
   --sidebar-accent: var(--surface-2);
   --sidebar-accent-foreground: var(--text-1);
-  --sidebar-border: rgba(67, 70, 81, 0.5);
-  --sidebar-ring: var(--accent-cool);
+  --sidebar-border: rgba(244, 241, 234, 0.09);
+  --sidebar-ring: var(--accent-warm);
 }
 
 .dark {
@@ -147,145 +140,173 @@
     font: 400 15px/1.65 var(--font-ui);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
   }
   button:not([disabled]),
-  [role="button"]:not([disabled]) {
+  [role="button"]:not([disabled]),
+  a[href] {
     cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent-warm);
+    outline-offset: 3px;
+    border-radius: 4px;
   }
 }
 
 @layer components {
-  /* Editorial shell shared by the landing page and the app */
   .shell {
     width: 100%;
-    max-width: 1200px;
+    max-width: 1120px;
     margin-inline: auto;
-    padding-inline: clamp(20px, 4vw, 40px);
+    padding-inline: clamp(20px, 5vw, 40px);
   }
 
   .eyebrow {
     display: inline-block;
-    font: 500 12px/1 var(--font-mono);
-    letter-spacing: 0.14em;
+    font: 500 11px/1 var(--font-mono);
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--text-4);
   }
 
-  /* Pill CTA — the signature control of this design system */
+  /* Display type. The serif is the signature; the sans carries everything
+     that has to be read quickly. */
+  .display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    line-height: 1.08;
+  }
+
   .btn-primary {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
-    padding: 12px 20px;
+    padding: 12px 22px;
     border-radius: 9999px;
-    background: var(--accent-cool);
-    color: var(--bg);
-    border: 1px solid var(--accent-cool);
+    background: var(--accent-warm);
+    color: #17120f;
     font: 500 14px/1 var(--font-ui);
-    letter-spacing: -0.005em;
     white-space: nowrap;
     transition:
-      transform 0.22s var(--ease),
-      background 0.12s var(--ease),
-      box-shadow 0.22s var(--ease);
+      background 0.15s var(--ease),
+      transform 0.22s var(--ease);
   }
   .btn-primary:hover {
-    background: var(--accent-cool-hover);
-    box-shadow: 0 8px 28px rgba(var(--accent-cool-rgb), 0.3);
-  }
-  .btn-primary:focus-visible {
-    outline: 2px solid var(--accent-cool);
-    outline-offset: 3px;
+    background: var(--accent-warm-hover);
+    transform: translateY(-1px);
   }
   .btn-primary:disabled {
     opacity: 0.45;
     cursor: not-allowed;
     transform: none;
-    box-shadow: none;
   }
 
   .btn-ghost {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
-    padding: 11px 19px;
+    padding: 11px 20px;
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.04);
+    background: transparent;
     color: var(--text-1);
-    border: 1px solid rgba(67, 70, 81, 0.9);
+    border: 1px solid var(--border);
     font: 500 14px/1 var(--font-ui);
     white-space: nowrap;
     transition:
-      background 0.12s var(--ease),
-      border-color 0.12s var(--ease),
+      background 0.15s var(--ease),
+      border-color 0.15s var(--ease),
       transform 0.22s var(--ease);
   }
   .btn-ghost:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--text-3);
-  }
-  .btn-ghost:focus-visible {
-    outline: 2px solid var(--accent-cool);
-    outline-offset: 3px;
+    background: var(--surface-2);
+    border-color: rgba(244, 241, 234, 0.18);
+    transform: translateY(-1px);
   }
 
   .panel {
     background: var(--surface-1);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius);
   }
 
   .tag {
     display: inline-flex;
     align-items: center;
+    gap: 5px;
     padding: 4px 10px;
     border-radius: 9999px;
-    background: var(--accent-cool-soft);
-    color: var(--accent-cool);
-    font: 500 11px/1.4 var(--font-mono);
-    letter-spacing: 0.04em;
-  }
-  .tag-warm {
     background: var(--accent-warm-soft);
     color: var(--accent-warm);
+    font: 500 11px/1.4 var(--font-mono);
+    letter-spacing: 0.02em;
   }
-  .tag-neutral {
+  .tag-quiet {
     background: var(--surface-2);
     color: var(--text-3);
     border: 1px solid var(--border);
   }
-
-  /* Only ever used on one or two words per screen */
-  .key-gradient {
-    background: linear-gradient(
-      135deg,
-      var(--accent-cool),
-      var(--accent-warm),
-      var(--accent-cool)
-    );
-    background-size: 300% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: gradient-slide 14s linear infinite;
+  .tag-cool {
+    background: var(--accent-cool-soft);
+    color: var(--accent-cool);
   }
-  @keyframes gradient-slide {
-    to {
-      background-position: -300% 0;
-    }
+
+  /* Cinematic wash. One light source, warm, bleeding in from the top —
+     no purple, no neon, no second hue competing with the ember accent. */
+  .glow {
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background: radial-gradient(
+        58% 42% at 50% 0%,
+        rgba(var(--ember-rgb), 0.15),
+        transparent 70%
+      ),
+      radial-gradient(40% 30% at 82% 22%, rgba(157, 180, 168, 0.06), transparent 70%);
+  }
+  .fade-out {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      transparent 55%,
+      var(--bg) 97%
+    );
+  }
+
+  .rule {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--border) 18%,
+      var(--border) 82%,
+      transparent
+    );
   }
 
   .reveal {
     opacity: 0;
   }
   .reveal.in-view {
-    animation: fade-up 0.8s var(--ease-cinema) forwards;
+    animation: rise 0.9s var(--ease-cinema) forwards;
   }
-  @keyframes fade-up {
+  @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(24px);
-      filter: blur(6px);
+      transform: translateY(18px);
+      filter: blur(5px);
     }
     to {
       opacity: 1;
@@ -294,49 +315,15 @@
     }
   }
 
-  /* Soft aurora wash — the only ambient background in the system */
-  .aurora {
-    position: absolute;
-    inset: 0;
-    z-index: -2;
-    background:
-      radial-gradient(
-        60% 50% at 30% 25%,
-        rgba(var(--accent-cool-rgb), 0.2),
-        transparent 65%
-      ),
-      radial-gradient(
-        50% 42% at 75% 55%,
-        rgba(var(--accent-warm-rgb), 0.16),
-        transparent 60%
-      ),
-      radial-gradient(
-        45% 40% at 50% 92%,
-        rgba(139, 140, 247, 0.1),
-        transparent 60%
-      );
-  }
-  .vignette {
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background: radial-gradient(
-      ellipse 80% 60% at 50% 110%,
-      var(--bg) 0%,
-      transparent 60%
-    );
-  }
-
   .codeblock {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 14px 18px;
-    background: var(--surface-1);
+    background: var(--bg-2);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    font: 500 13px/1.5 var(--font-mono);
+    border-radius: var(--radius);
+    font: 400 13px/1.5 var(--font-mono);
     color: var(--text-2);
   }
 

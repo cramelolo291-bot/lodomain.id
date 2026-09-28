@@ -1,11 +1,20 @@
 // The single seam between the UI and the backend.
 //
-// `mockApi` below stands in for the Hono + PostgreSQL server while the UI is
-// built. It is written against the same response shapes the real server will
-// return, so switching to `httpApi` is a one-line change at the bottom of this
-// file and nothing above it has to move.
+// `mockApi` stands in for the Hono + PostgreSQL server while the UI is built.
+// It returns the same JSON shapes the real server will, so switching to
+// `httpApi` is a one-line change at the bottom of this file.
 
-import { AGENTS, MODELS, getAgent, getModel, preferredAgent } from "./catalog";
+import {
+  AGENTS,
+  GATEWAY_ROUTES,
+  MODELS,
+  TIER_LIMITS,
+  getAgent,
+  getModel,
+  preferredAgent,
+  type Effort,
+  type Tier,
+} from "./catalog";
 import {
   GUARDRAIL_LABELS,
   screen,
@@ -47,17 +56,20 @@ export type Message = {
   createdAt: number;
 };
 
-export type PoolStatus = "healthy" | "degraded" | "cooling" | "disabled";
+export type AccountStatus = "healthy" | "degraded" | "cooling" | "disabled";
 
-export type PoolEntry = {
+/** One upstream account in the gateway pool, routed by health and capacity. */
+export type PoolAccount = {
   id: string;
-  name: string;
-  tag: string;
-  status: PoolStatus;
+  label: string;
+  tier: Tier;
+  status: AccountStatus;
   health: number;
   inFlight: number;
-  maxParallel: number;
-  vramGb: number;
+  /** Serial slots. Effective concurrency is capped by this number. */
+  maxSlots: number;
+  /** Concurrent requests allowed inside a slot. */
+  concurrency: number;
   successes: number;
   failures: number;
   cooldownUntil?: number;
@@ -70,9 +82,6 @@ export type PoolSummary = {
   freeSlots: number;
   totalSlots: number;
   avgHealth: number;
-  /** Total VRAM the loaded models need, versus what the box reports. */
-  vramUsedGb: number;
-  vramTotalGb: number;
 };
 
 export type TraceStep = {
@@ -81,7 +90,7 @@ export type TraceStep = {
   label: string;
   detail: string;
   ms: number;
-  status: "ok" | "blocked" | "failed";
+  status: "ok" | "blocked" | "failed" | "skipped";
 };
 
 export type Trace = {
@@ -90,7 +99,7 @@ export type Trace = {
   prompt: string;
   agent: string;
   model: string;
-  poolEntry: string;
+  account: string;
   ok: boolean;
   totalMs: number;
   tokensIn: number;
@@ -119,7 +128,7 @@ export type Finding = {
 export type FindingsResult = {
   total: number;
   recent: Finding[];
-  byCategory: Array<{ category: GuardrailCategory; count: number }>;
+  byCategory: Array<{ category: string; count: number }>;
 };
 
 export type ApiKey = {
@@ -131,14 +140,17 @@ export type ApiKey = {
   revoked: boolean;
 };
 
-/** Hardware the pool scheduler admits models against. */
-export type Host = {
-  gpu: string;
-  vramTotalGb: number;
-  parallel: number;
-  ollamaUrl: string;
-  version: string;
+/** Gateway configuration and health, mirroring the upstream config surface. */
+export type GatewayInfo = {
+  upstream: string;
+  listenAddr: string;
+  status: "ok" | "degraded";
+  keepaliveMs: number;
+  memoryEnabled: boolean;
+  credits: number;
 };
+
+export type RouteDef = { method: string; path: string; note: string };
 
 export type TurnResult =
   | { status: "ok"; traceId: string }
@@ -148,47 +160,68 @@ export type TurnResult =
 // ── Mock backend ──────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "lolo.mock.v1";
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
 
 type MockState = {
   session: Session | null;
   conversations: Conversation[];
   messages: Message[];
-  pool: PoolEntry[];
+  pool: PoolAccount[];
   traces: Trace[];
   findings: Finding[];
   keys: ApiKey[];
 };
 
-const MIN = 60_000;
-const HOUR = 60 * MIN;
-const DAY = 24 * HOUR;
-
 function seed(): MockState {
   const now = Date.now();
   const yesterday = now - DAY;
+
+  const account = (
+    id: string,
+    label: string,
+    tier: Tier,
+    health: number,
+    successes: number,
+    failures: number,
+    extra: Partial<PoolAccount> = {},
+  ): PoolAccount => ({
+    id,
+    label,
+    tier,
+    status: "healthy",
+    health,
+    inFlight: 0,
+    maxSlots: TIER_LIMITS[tier].slots,
+    concurrency: TIER_LIMITS[tier].concurrency,
+    successes,
+    failures,
+    ...extra,
+  });
 
   return {
     session: null,
     conversations: [
       {
         id: "c1",
-        title: "Rancang schema Postgres untuk Lolo",
-        agent: "builder",
-        model: "qwen2.5-coder:7b",
+        title: "Migrasi schema Postgres untuk agent gateway",
+        agent: "forge",
+        model: "deepseek/deepseek-v4.1-flash",
         updatedAt: now - 12 * MIN,
       },
       {
         id: "c2",
-        title: "Bandingkan Qwen3 vs Gemma3 12B",
-        agent: "researcher",
-        model: "llama3.1:8b",
+        title: "Bandingkan effort support antar model",
+        agent: "lolo",
+        model: "z-ai/glm-5.3-flash",
         updatedAt: yesterday,
       },
       {
         id: "c3",
         title: "Audit guardrail rules",
         agent: "redteam",
-        model: "gemma3:12b",
+        model: "meta/muse-spark-1.2",
         updatedAt: yesterday - 3 * HOUR,
       },
     ],
@@ -198,8 +231,8 @@ function seed(): MockState {
         conversationId: "c1",
         role: "user",
         content:
-          "Bikin skema Postgres untuk app AI agent multi-user. Perlu nyimeng chat, dan tiap user punya API key sendiri.",
-        agent: "builder",
+          "Bikin skema Postgres buat gateway AI multi-user. Tiap user butuh API key sendiri.",
+        agent: "forge",
         createdAt: now - 14 * MIN,
       },
       {
@@ -207,9 +240,9 @@ function seed(): MockState {
         conversationId: "c1",
         role: "assistant",
         content:
-          "Delapan tabel. Ringkasnya:\n\n- `users` — akun + role admin/user\n- `sessions` — token hash, bukan token mentah\n- `magic_links` — hash + `used_at`, sekali pakai\n- `conversations` / `messages` — chat, `messages` nunjukin `conversation_id`\n- `model_pool` — scheduler: health, in_flight, cooldown\n- `usage_events` — metrik per request\n- `api_keys` — `secret_hash`, raw-nya cuma tampil saat dibuat\n\nYang paling sering kelupaan: `api_keys.secret` WAJIB di-hash. Kalau disimpan mentah, sekali bocor semua key langsung mati.",
-        agent: "builder",
-        model: "qwen2.5-coder:7b",
+          "Sembilan tabel. Ringkasnya:\n\n- `users` — akun dan role admin/user\n- `sessions` — simpan token hash, bukan token mentah\n- `magic_links` — hash plus `used_at`, sekali pakai\n- `conversations` dan `messages` — chat, dengan `messages` menunjuk `conversation_id`\n- `pool_accounts` — health, in_flight, cooldown_until per akun upstream\n- `usage_events` — metrik per request\n- `api_keys` — `secret_hash`; nilai mentah hanya tampil sekali saat pembuatan\n\n- `traces` dan `trace_steps` — jejak tiap giliran, supaya \"kenapa jawabannya gitu\" bisa ditelusuri\n\nYang paling sering kelupaan: `api_keys.secret` WAJIB di-hash. Kalau disimpan mentah, sekali bocor semua key ikut mati.",
+        agent: "forge",
+        model: "deepseek/deepseek-v4.1-flash",
         latencyMs: 4310,
         tokensIn: 812,
         tokensOut: 247,
@@ -217,90 +250,37 @@ function seed(): MockState {
       },
     ],
     pool: [
-      {
-        id: "p1",
-        name: "qwen3-8b",
-        tag: "qwen3:8b",
-        status: "healthy",
-        health: 96,
-        inFlight: 0,
-        maxParallel: 2,
-        vramGb: 6,
-        successes: 184,
-        failures: 3,
-        lastUsedAt: now - 8 * MIN,
-      },
-      {
-        id: "p2",
-        name: "qwen-coder",
-        tag: "qwen2.5-coder:7b",
-        status: "healthy",
-        health: 91,
+      account("a1", "free-primary", "free", 92, 184, 3),
+      account("a2", "free-secondary", "free", 74, 61, 9),
+      account("a3", "subscribed-1", "subscribed", 97, 402, 2, {
         inFlight: 1,
-        maxParallel: 2,
-        vramGb: 6,
-        successes: 132,
-        failures: 6,
-        lastUsedAt: now - 12 * MIN,
-      },
-      {
-        id: "p3",
-        name: "llama31-8b",
-        tag: "llama3.1:8b",
-        status: "healthy",
-        health: 88,
-        inFlight: 0,
-        maxParallel: 2,
-        vramGb: 6,
-        successes: 96,
-        failures: 4,
-        lastUsedAt: yesterday,
-      },
-      {
-        id: "p4",
-        name: "gemma3-12b",
-        tag: "gemma3:12b",
-        status: "cooling",
-        health: 64,
-        inFlight: 0,
-        maxParallel: 1,
-        vramGb: 10,
-        successes: 41,
-        failures: 11,
-        cooldownUntil: now + 4 * MIN,
-        lastUsedAt: now - 31 * MIN,
-      },
-      {
-        id: "p5",
-        name: "deepseek-r1",
-        tag: "deepseek-r1:14b",
+        lastUsedAt: now - 2 * MIN,
+      }),
+      account("a4", "subscribed-2", "subscribed", 88, 233, 6, {
+        lastUsedAt: now - 19 * MIN,
+      }),
+      account("a5", "free-legacy", "free", 41, 18, 22, {
         status: "degraded",
-        health: 52,
-        inFlight: 0,
-        maxParallel: 1,
-        vramGb: 11,
-        successes: 18,
-        failures: 14,
         lastUsedAt: yesterday - 5 * HOUR,
-      },
+      }),
     ],
     traces: [
       {
         id: "t1",
         conversationId: "c1",
-        prompt: "Bikin skema Postgres untuk app AI agent multi-user…",
-        agent: "builder",
-        model: "qwen2.5-coder:7b",
-        poolEntry: "qwen-coder",
+        prompt: "Bikin skema Postgres buat gateway AI multi-user…",
+        agent: "forge",
+        model: "deepseek/deepseek-v4.1-flash",
+        account: "subscribed-1",
         ok: true,
         totalMs: 4310,
         tokensIn: 812,
         tokensOut: 247,
         steps: [
-          { id: "s1", at: now - 14 * MIN, label: "guardrail", detail: "clean", ms: 1, status: "ok" },
-          { id: "s2", at: now - 14 * MIN, label: "pool", detail: "claimed qwen-coder", ms: 3, status: "ok" },
-          { id: "s3", at: now - 13 * MIN, label: "load model", detail: "already resident", ms: 40, status: "ok" },
-          { id: "s4", at: now - 13 * MIN, label: "generate", detail: "247 tokens", ms: 4266, status: "ok" },
+          { id: "s1", at: now - 14 * MIN, label: "guardrail", detail: "clean · 7 rules", ms: 1, status: "ok" },
+          { id: "s2", at: now - 14 * MIN, label: "effort", detail: "high · supported", ms: 1, status: "ok" },
+          { id: "s3", at: now - 14 * MIN, label: "pool", detail: "claimed subscribed-1", ms: 3, status: "ok" },
+          { id: "s4", at: now - 13 * MIN, label: "upstream", detail: "247 tokens · keepalive 45s", ms: 4305, status: "ok" },
         ],
       },
     ],
@@ -368,8 +348,7 @@ function save(state: MockState) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
-    // Preview runs in a sandbox where storage can be blocked; the app still
-    // works, it just forgets between reloads.
+    // Storage can be blocked in the preview; the app still works in-session.
   }
 }
 
@@ -387,57 +366,70 @@ function uid(prefix: string) {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export const HOST: Host = {
-  gpu: "NVIDIA RTX 3060 12GB",
-  vramTotalGb: 12,
-  parallel: 2,
-  ollamaUrl: "http://localhost:11434",
-  version: "0.5.4",
+export const GATEWAY: GatewayInfo = {
+  upstream: "https://www.codebuff.com",
+  listenAddr: "127.0.0.1:47821",
+  status: "ok",
+  keepaliveMs: 45_000,
+  memoryEnabled: false,
+  credits: 1240,
 };
 
 /** Canned replies, so the preview shows a real conversation shape. */
 const REPLIES: Record<string, (prompt: string) => string> = {
   lolo: (p) =>
-    `Gw sudah memecah ini jadi tiga bagian, dan urutannya penting.\n\n` +
-    `**1. Apa yang sebenarnya lo mau**\nAmbil dari kalimat terakhir lo — "${p.slice(0, 60)}…". Itu inti permintaannya.\n\n` +
-    `**2. Apa yang belum jelas**\nSpesifikasi dan batasannya belum disebut. Tanpa itu, tebakan saya bisa meleset.\n\n` +
+    `Gw pecah ini jadi tiga bagian, dan urutannya penting.\n\n` +
+    `**1. Yang sebenarnya lo mau**\nAmbil dari kalimat terakhir lo — "${p.slice(0, 60)}…". Itu inti permintaannya.\n\n` +
+    `**2. Yang belum jelas**\nSpesifikasi dan batasannya belum disebut. Tanpa itu, tebakan saya bisa meleset.\n\n` +
     `**3. Langkah berikutnya**\nJawab tiga pertanyaan di atas, nanti saya lempar ke spesialis yang paling pas — bukan nebak-nebak dulu.\n\n` +
-    `_Reroute: 2 spesialis dipanggil. Trace lengkap ada di tab Trace._`,
+    `_Reroute: 2 spesialis dipanggil. Jejak lengkap ada di tab Trace._`,
 
-  researcher: (p) =>
-    `**Fakta**\nSemua model di pool ini jalan lokal lewat Ollama, jadi tidak ada data yang keluar dari mesin lo.\n\n` +
+  scout: (p) =>
+    `**Fakta**\nSemua model di pool ini lewat gateway sendiri, jadi tidak ada data yang keluar ke vendor lain.\n\n` +
     `**Asumsi**\nSaya asumsikan "${p.slice(0, 40)}…" ini pertanyaan lanjutan, bukan permintaan bikin sistem baru. Kalau salah, koreksi saya.\n\n` +
-    `**Yang belum saya tahu**\nBatas VRAM lo. Itu yang menentukan model mana yang bisa masuk pool — bukan preferensi.\n\n` +
-    `_Rekomendasi: Qwen3 8B untuk harian, Gemma 3 12B untuk reasoning berat. Jangan dua-duanya kalau VRAM cuma 12GB, salah satu akan ke-evict tiap kali ganti._`,
+    `**Yang belum saya tahu**\nBerapa banyak akun subscribed yang lo punya. Itu yang menentukan kapasitas pool, bukan preferensi model.\n\n` +
+    `_Catatan: yang menentukan kapasitas itu slot, bukan model. Free satu slot, subscribed tiga._`,
 
-  builder: (p) =>
+  forge: (p) =>
     `Oke, ini rancangan kasar buat "${p.slice(0, 50)}…".\n\n` +
     "```ts\n" +
-    `// scheduler: pilih model yang muat di VRAM dan punya slot kosong\n` +
-    `function pick(entries: PoolEntry[], vram: number): PoolEntry | null {\n` +
-    `  return entries\n` +
-    `    .filter((e) => e.status === "healthy")\n` +
-    `    .filter((e) => e.inFlight < e.maxParallel)\n` +
-    `    .sort((a, b) => a.vramGb - b.vramGb || b.health - a.health)\n` +
-    `    .find((e) => e.vramGb <= vram) ?? null;\n` +
+    `// pilih akun paling sehat yang masih punya slot kosong\n` +
+    `function pick(accounts: PoolAccount[]): PoolAccount | null {\n` +
+    `  return accounts\n` +
+    `    .filter((a) => a.status === "healthy")\n` +
+    `    .filter((a) => a.inFlight < a.maxSlots)\n` +
+    `    .sort((a, b) => b.health - a.health)\n` +
+    `    .at(0) ?? null;\n` +
     `}\n` +
     "```\n\n" +
-    `**Edge case yang gue tanganin**\n- Semua model muat → ambil yang VRAM-nya paling kecil, biar sisanya masih ada ruang.\n- Nggak ada yang muat → jangan crash, kembalikan \`null\` supaya UI bisa nambah model.\n- Cooling → kasih tahu, jangan lewatkan diam-diam.\n\n` +
-    `**Belum gue kerjain**: kuota. Kalau satu user ngabisin VRAM, user lain numpang antre. Itu butuh batas per-user, bukan per-model.`,
+    `**Edge case yang gue tanganin**\n- Semua akun penuh → jangan crash, kembalikan \`null\` supaya UI bisa nambah akun.\n- Effort nggak didukung → dibuang, bukan error. Contohnya \`mimo\` dan \`solar-pro4\`.\n- 401 → langsung cooldown, bukan dicoba terus.\n\n` +
+    `**Belum gue kerjain**: kuota. Kalau satu user ngabisin slot, user lain numpang antre. Itu butuh batas per-user, bukan per-akun.`,
 
   redteam: (p) =>
     `Saya serang "${p.slice(0, 50)}…" dan menemukan 4 hal.\n\n` +
     `**1. Prompt injection — tinggi**\nAda frasa yang, kalau disisipkan ke konten yang di-retrieve, bisa menimpa instruksi sistem. Rules lo kena polanya, tapi hanya yang literal.\n\n` +
     `**2. Excessive agency — tinggi**\nNggak ada batas jelas antara "nilai yang lo minta" dan "nilai yang agent boleh akses sendiri". Kalau nanti agent dikasih tool, ini jadi celah.\n\n` +
-    `**3. Guardrail blindness — sedang**\nFilter lo cuma jalan di prompt masuk. Kalau model balancer atau reviewer diawasi lewat lapisan sendiri, jalur itu belum difilter.\n\n` +
+    `**3. Guardrail blindness — sedang**\nFilter lo cuma jalan di prompt masuk. Kalau reviewer atau balancer diawasi lewat lapisan sendiri, jalur itu belum difilter.\n\n` +
     `**4. PII leakage — sedang**\nRegex email dan nomor HP masih kepicu buat nomor versi. False positive, tapi bakal bikin user kesal.\n\n` +
-    `Yang paling saya khawatirkan bukan poin di atas — itu semua yang sudah lo tangani. Yang belum ada: **nggak ada cara tahu kalau saya sendiri lagi di-inject.** Itu butuh judge yang terpisah, bukan agent yang sama yang lagi diperiksa.`,
+    `Yang paling saya khawatirin bukan poin di atas — itu semua yang sudah lo tangani. Yang belum ada: **nggak ada cara tahu kalau saya sendiri lagi di-inject.** Itu butuh judge terpisah, bukan agent yang sama yang lagi diperiksa.`,
 };
+
+/** Highest effort the chosen model actually accepts. */
+function effortFor(id: string, wanted: Effort | undefined): Effort | undefined {
+  const model = getModel(id);
+  if (model.efforts.length === 0) return undefined;
+  if (wanted && model.efforts.includes(wanted)) return wanted;
+  return model.efforts.includes("high") ? "high" : model.efforts[0];
+}
 
 function mockApi() {
   return {
-    async host(): Promise<Host> {
-      return HOST;
+    async gateway(): Promise<GatewayInfo> {
+      return GATEWAY;
+    },
+
+    async routes(): Promise<RouteDef[]> {
+      return GATEWAY_ROUTES.map((r) => ({ ...r }));
     },
 
     async requestMagicLink(email: string): Promise<void> {
@@ -446,8 +438,7 @@ function mockApi() {
       state.session = {
         email,
         name: name.replace(/\b\w/g, (c) => c.toUpperCase()),
-        // The first account to sign in runs the server; the rest are users.
-        role: state.keys.length === 0 && email.startsWith("a") ? "admin" : "user",
+        role: "admin",
       };
       commit();
     },
@@ -470,7 +461,7 @@ function mockApi() {
         id: uid("c"),
         title: "New run",
         agent: agent ?? "lolo",
-        model: model ?? MODELS[0]!.tag,
+        model: model ?? MODELS[0]!.id,
         updatedAt: Date.now(),
       };
       state.conversations.unshift(c);
@@ -501,69 +492,69 @@ function mockApi() {
         .sort((a, b) => a.createdAt - b.createdAt);
     },
 
-    async pool(): Promise<{ entries: PoolEntry[]; summary: PoolSummary }> {
+    async pool(): Promise<{ accounts: PoolAccount[]; summary: PoolSummary }> {
       const now = Date.now();
-      const entries = state.pool.map((e) => ({
-        ...e,
+      const accounts = state.pool.map((a) => ({
+        ...a,
         status:
-          e.cooldownUntil !== undefined && e.cooldownUntil > now
-            ? ("cooling" as PoolStatus)
-            : e.status,
+          a.cooldownUntil !== undefined && a.cooldownUntil > now
+            ? ("cooling" as AccountStatus)
+            : a.status,
       }));
-      const healthy = entries.filter((e) => e.status === "healthy");
+      const healthy = accounts.filter((a) => a.status === "healthy");
       return {
-        entries,
+        accounts,
         summary: {
-          total: entries.length,
+          total: accounts.length,
           healthy: healthy.length,
           freeSlots: healthy.reduce(
-            (sum, e) => sum + Math.max(0, e.maxParallel - e.inFlight),
+            (sum, a) => sum + Math.max(0, a.maxSlots - a.inFlight),
             0,
           ),
-          totalSlots: entries.reduce((s, e) => s + e.maxParallel, 0),
-          avgHealth: entries.length
-            ? Math.round(entries.reduce((s, e) => s + e.health, 0) / entries.length)
+          totalSlots: accounts.reduce((s, a) => s + a.maxSlots, 0),
+          avgHealth: accounts.length
+            ? Math.round(
+                accounts.reduce((s, a) => s + a.health, 0) / accounts.length,
+              )
             : 0,
-          vramUsedGb: entries
-            .filter((e) => e.status !== "disabled")
-            .reduce((s, e) => s + e.vramGb, 0),
-          vramTotalGb: HOST.vramTotalGb,
         },
       };
     },
 
-    async setPoolStatus(id: string, status: PoolStatus): Promise<void> {
-      const e = state.pool.find((x) => x.id === id);
-      if (!e) return;
-      e.status = status;
+    async setAccountStatus(
+      id: string,
+      status: "healthy" | "disabled",
+    ): Promise<void> {
+      const a = state.pool.find((x) => x.id === id);
+      if (!a) return;
+      a.status = status;
       if (status === "healthy") {
-        e.health = 100;
-        e.cooldownUntil = undefined;
+        a.health = 100;
+        a.cooldownUntil = undefined;
       }
-      if (status === "disabled") e.inFlight = 0;
+      if (status === "disabled") a.inFlight = 0;
       commit();
     },
 
-    async addPoolEntry(tag: string): Promise<void> {
-      if (state.pool.some((e) => e.tag === tag)) return;
-      const m = getModel(tag);
+    async addAccount(label: string, tier: Tier): Promise<void> {
+      if (state.pool.some((a) => a.label === label)) return;
       state.pool.push({
-        id: uid("p"),
-        name: m.label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        tag: m.tag,
+        id: uid("a"),
+        label,
+        tier,
         status: "healthy",
         health: 100,
         inFlight: 0,
-        maxParallel: 2,
-        vramGb: m.vramGb,
+        maxSlots: TIER_LIMITS[tier].slots,
+        concurrency: TIER_LIMITS[tier].concurrency,
         successes: 0,
         failures: 0,
       });
       commit();
     },
 
-    async removePoolEntry(id: string): Promise<void> {
-      state.pool = state.pool.filter((e) => e.id !== id);
+    async removeAccount(id: string): Promise<void> {
+      state.pool = state.pool.filter((a) => a.id !== id);
       commit();
     },
 
@@ -572,27 +563,31 @@ function mockApi() {
     },
 
     async usage(): Promise<UsageStats> {
-      const total = state.pool.reduce((s, e) => s + e.successes + e.failures, 0);
-      const failed = state.pool.reduce((s, e) => s + e.failures, 0);
+      const total = state.pool.reduce((s, a) => s + a.successes + a.failures, 0);
+      const failed = state.pool.reduce((s, a) => s + a.failures, 0);
       return {
         requests: total,
         tokensIn: total * 412,
         tokensOut: total * 138,
         failed,
         avgLatencyMs: 3890,
-        perModel: state.pool
-          .map((e) => ({ model: e.tag, count: e.successes + e.failures }))
-          .sort((a, b) => b.count - a.count),
-        perAccount: state.pool.map((e) => ({
-          label: e.name,
-          ok: e.successes,
-          failed: e.failures,
+        perModel: [
+          { model: "z-ai/glm-5.3-flash", count: 142 },
+          { model: "deepseek/deepseek-v4.1-flash", count: 118 },
+          { model: "meta/muse-spark-1.2", count: 76 },
+          { model: "solar/solar-pro4", count: 41 },
+          { model: "stealth/ox-alpha", count: 18 },
+        ],
+        perAccount: state.pool.map((a) => ({
+          label: a.label,
+          ok: a.successes,
+          failed: a.failures,
         })),
       };
     },
 
     async findings(): Promise<FindingsResult> {
-      const byCategory = new Map<GuardrailCategory, number>();
+      const byCategory = new Map<string, number>();
       for (const f of state.findings) {
         byCategory.set(f.category, (byCategory.get(f.category) ?? 0) + 1);
       }
@@ -636,8 +631,9 @@ function mockApi() {
     },
 
     /**
-     * The full turn pipeline, running against the mock: screen, claim a pool
-     * slot, "generate", settle, record. Same steps the Hono server will run.
+     * The turn pipeline, running against the mock: screen, resolve effort,
+     * claim an account slot, "generate", settle, record. The same steps the
+     * Hono server will run against a real upstream.
      */
     async runTurn(args: {
       conversationId: string;
@@ -654,15 +650,14 @@ function mockApi() {
         status: TraceStep["status"],
       ) => steps.push({ id: uid("s"), at: started, label, detail, ms, status });
 
-      const userMessage: Message = {
+      state.messages.push({
         id: uid("m"),
         conversationId: args.conversationId,
         role: "user",
         content: args.prompt,
         agent: args.agent,
         createdAt: started,
-      };
-      state.messages.push(userMessage);
+      });
       const conv = state.conversations.find((c) => c.id === args.conversationId);
       if (conv) {
         conv.updatedAt = started;
@@ -673,7 +668,7 @@ function mockApi() {
       const finding = screen(args.prompt, "input");
       push(
         "guardrail",
-        finding ? `${finding.category} · ${finding.severity}` : "clean",
+        finding ? `${finding.category} · ${finding.severity}` : "clean · 7 rules",
         1,
         finding ? "blocked" : "ok",
       );
@@ -698,110 +693,107 @@ function mockApi() {
           guardrailReason: finding.reason,
           createdAt: Date.now(),
         });
-        const trace: Trace = {
+        state.traces.unshift({
           id: uid("t"),
           conversationId: args.conversationId,
           prompt: args.prompt,
           agent: args.agent,
           model: args.model,
-          poolEntry: "—",
+          account: "—",
           ok: false,
           totalMs: Date.now() - started,
           tokensIn: 0,
           tokensOut: 0,
           steps,
-        };
-        state.traces.unshift(trace);
+        });
         commit();
         return { status: "blocked", guardrail: finding.category };
       }
 
-      // 2 — claim a pool slot
-      const entry = state.pool.find(
-        (e) => e.tag === args.model && e.status !== "disabled",
-      );
-      if (!entry) {
-        const reason = `Model ${args.model} isn't in the pool. Add it from the server panel.`;
-        state.messages.push({
-          id: uid("m"),
-          conversationId: args.conversationId,
-          role: "assistant",
-          content: reason,
-          agent: args.agent,
-          createdAt: Date.now(),
-        });
-        commit();
-        return { status: "error", reason };
-      }
-
-      if (entry.inFlight >= entry.maxParallel) {
-        const reason = `No free slot on ${entry.name} right now. Every model in the pool is busy — wait for a turn to finish.`;
-        state.messages.push({
-          id: uid("m"),
-          conversationId: args.conversationId,
-          role: "assistant",
-          content: reason,
-          agent: args.agent,
-          createdAt: Date.now(),
-        });
-        commit();
-        return { status: "error", reason };
-      }
-
-      entry.inFlight += 1;
+      // 2 — effort resolution: stripped, not rejected
       const model = getModel(args.model);
-      const buildMs = model.vramGb > 8 ? 3800 : 420;
-      const genMs = 1800 + Math.min(4200, args.prompt.length * 9);
-      push("pool", `claimed ${entry.name}`, 3, "ok");
+      const effort = effortFor(args.model, undefined);
       push(
-        "load model",
-        buildMs > 500 ? "cold start" : "already resident",
-        buildMs,
+        "effort",
+        model.efforts.length === 0
+          ? "unsupported · stripped"
+          : `${effort} · supported`,
+        1,
         "ok",
       );
 
-      await wait(700);
-      push("generate", `${args.prompt.length} chars in`, genMs, "ok");
+      // 3 — claim an account slot
+      const account = [...state.pool]
+        .filter((a) => a.status !== "disabled")
+        .sort(
+          (a, b) =>
+            Number(Boolean(a.cooldownUntil && a.cooldownUntil > Date.now())) -
+              Number(Boolean(b.cooldownUntil && b.cooldownUntil > Date.now())) ||
+            b.health - a.health,
+        )
+        .find((a) => a.inFlight < a.maxSlots);
 
-      // 3 — settle the slot
-      entry.inFlight = Math.max(0, entry.inFlight - 1);
-      entry.successes += 1;
-      entry.health = Math.min(100, entry.health + 1);
-      entry.lastUsedAt = Date.now();
+      if (!account) {
+        const reason =
+          "No free slot in the pool. Every account is busy or cooling down. Add an account from the server panel, or wait for a turn to finish.";
+        state.messages.push({
+          id: uid("m"),
+          conversationId: args.conversationId,
+          role: "assistant",
+          content: reason,
+          agent: args.agent,
+          createdAt: Date.now(),
+        });
+        commit();
+        return { status: "error", reason };
+      }
+
+      account.inFlight += 1;
+      push("pool", `claimed ${account.label}`, 3, "ok");
+
+      const genMs = 1800 + Math.min(4200, args.prompt.length * 9);
+      push("upstream", `${args.prompt.length} chars in · keepalive 45s`, genMs, "ok");
+      await wait(700);
+
+      // 4 — settle
+      account.inFlight = Math.max(0, account.inFlight - 1);
+      account.successes += 1;
+      account.health = Math.min(100, account.health + 1);
+      account.lastUsedAt = Date.now();
 
       const replyFn = REPLIES[args.agent] ?? REPLIES.lolo!;
+      const body = replyFn(args.prompt);
       const tokensIn = 380 + args.prompt.length;
-      const tokensOut = 120 + replyFn(args.prompt).length;
+      const tokensOut = 120 + body.length;
 
       state.messages.push({
         id: uid("m"),
         conversationId: args.conversationId,
         role: "assistant",
-        content: replyFn(args.prompt),
+        content: body,
         agent: args.agent,
         model: args.model,
-        latencyMs: buildMs + genMs,
+        latencyMs: genMs,
         tokensIn,
         tokensOut,
         createdAt: Date.now(),
       });
 
-      const trace: Trace = {
+      state.traces.unshift({
         id: uid("t"),
         conversationId: args.conversationId,
         prompt: args.prompt,
         agent: args.agent,
         model: args.model,
-        poolEntry: entry.name,
+        account: account.label,
         ok: true,
-        totalMs: buildMs + genMs,
+        totalMs: genMs,
         tokensIn,
         tokensOut,
         steps,
-      };
-      state.traces.unshift(trace);
+      });
       commit();
-      return { status: "ok", traceId: trace.id };
+      return { status: "ok", traceId: `t${Date.now()}` };
     },
   };
 }
@@ -809,9 +801,6 @@ function mockApi() {
 export type Api = ReturnType<typeof mockApi>;
 
 // ── Real backend (used once the Hono server exists) ───────────────────────
-//
-// Same signatures as `mockApi`, so the app imports `api` and never learns
-// which one it is talking to. Swap the export at the bottom of this file.
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -833,7 +822,8 @@ function httpApi() {
     });
 
   return {
-    host: () => get<Host>("/api/host"),
+    gateway: () => get<GatewayInfo>("/api/gateway"),
+    routes: () => get<RouteDef[]>("/api/gateway/routes"),
     requestMagicLink: (email: string) => send<void>("/api/auth/magic-link", "POST", { email }),
     session: () => get<Session | null>("/api/me"),
     signOut: () => send<void>("/api/auth/logout", "POST"),
@@ -842,14 +832,13 @@ function httpApi() {
       send<Conversation>("/api/conversations", "POST", { agent, model }),
     updateConversation: (id: string, patch: { agent?: string; model?: string }) =>
       send<void>(`/api/conversations/${id}`, "PATCH", patch),
-    deleteConversation: (id: string) =>
-      send<void>(`/api/conversations/${id}`, "DELETE"),
+    deleteConversation: (id: string) => send<void>(`/api/conversations/${id}`, "DELETE"),
     listMessages: (id: string) => get<Message[]>(`/api/conversations/${id}/messages`),
-    pool: () => get<{ entries: PoolEntry[]; summary: PoolSummary }>("/api/pool"),
-    setPoolStatus: (id: string, status: PoolStatus) =>
+    pool: () => get<{ accounts: PoolAccount[]; summary: PoolSummary }>("/api/pool"),
+    setAccountStatus: (id: string, status: "healthy" | "disabled") =>
       send<void>(`/api/pool/${id}`, "PATCH", { status }),
-    addPoolEntry: (tag: string) => send<void>("/api/pool", "POST", { tag }),
-    removePoolEntry: (id: string) => send<void>(`/api/pool/${id}`, "DELETE"),
+    addAccount: (label: string, tier: Tier) => send<void>("/api/pool", "POST", { label, tier }),
+    removeAccount: (id: string) => send<void>(`/api/pool/${id}`, "DELETE"),
     traces: () => get<Trace[]>("/api/traces"),
     usage: () => get<UsageStats>("/api/usage"),
     findings: () => get<FindingsResult>("/api/guardrails"),
@@ -876,4 +865,14 @@ export function subscribe(fn: () => void): () => void {
   };
 }
 
-export { AGENTS, MODELS, getAgent, GUARDRAIL_LABELS };
+export {
+  AGENTS,
+  GATEWAY_ROUTES,
+  MODELS,
+  TIER_LIMITS,
+  getAgent,
+  getModel,
+  preferredAgent,
+  effortFor,
+  GUARDRAIL_LABELS,
+};

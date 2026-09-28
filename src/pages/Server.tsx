@@ -1,13 +1,22 @@
 import { AppShell } from "@/components/AppShell";
-import { api, MODELS, type PoolEntry, type Trace } from "@/lib/api";
-import { ATTACK_TECHNIQUES, GUARDRAIL_LABELS, type Severity } from "@/lib/guardrails";
+import { PoolDiagram } from "@/components/Graphics";
+import {
+  api,
+  type PoolAccount,
+  type RouteDef,
+  type Trace,
+} from "@/lib/api";
+import {
+  ATTACK_TECHNIQUES,
+  GUARDRAIL_LABELS,
+  type Severity,
+} from "@/lib/guardrails";
 import { cn } from "@/lib/utils";
 import {
   Activity,
   AlertTriangle,
   Check,
   Copy,
-  Cpu,
   KeyRound,
   Plus,
   Shield,
@@ -19,24 +28,24 @@ import { toast } from "sonner";
 
 type Tab = "pool" | "trace" | "usage" | "guardrails" | "keys";
 
-const TABS: Array<{ key: Tab; label: string; icon: typeof Cpu }> = [
-  { key: "pool", label: "Pool", icon: Cpu },
-  { key: "trace", label: "Trace", icon: Activity },
-  { key: "usage", label: "Usage", icon: TrendingUp },
-  { key: "guardrails", label: "Guardrails", icon: Shield },
-  { key: "keys", label: "API keys", icon: KeyRound },
+const TABS: Array<{ key: Tab; label: string }> = [
+  { key: "pool", label: "Pool" },
+  { key: "trace", label: "Trace" },
+  { key: "usage", label: "Usage" },
+  { key: "guardrails", label: "Guardrails" },
+  { key: "keys", label: "Keys" },
 ];
 
 function Stat({
   label,
   value,
   sub,
-  accent,
+  hot,
 }: {
   label: string;
   value: string | number;
   sub?: string;
-  accent?: "cool" | "warm";
+  hot?: boolean;
 }) {
   return (
     <div className="panel p-4">
@@ -45,94 +54,94 @@ function Stat({
       </p>
       <p
         className={cn(
-          "mt-2 text-2xl font-bold tracking-tight",
-          accent === "cool" ? "text-cool" : accent === "warm" ? "text-warm" : "text-ink-1",
+          "display mt-2 text-[28px] leading-none",
+          hot ? "text-ember" : "text-ink-1",
         )}
       >
         {value}
       </p>
-      {sub && <p className="mt-1 text-[12px] text-ink-4">{sub}</p>}
+      {sub && <p className="mt-1.5 text-[12px] text-ink-4">{sub}</p>}
     </div>
   );
 }
 
-function PoolRow({ entry }: { entry: PoolEntry }) {
+function AccountRow({ account }: { account: PoolAccount }) {
   const tone =
-    entry.status === "healthy"
-      ? "text-cool"
-      : entry.status === "cooling"
-        ? "text-warm"
+    account.status === "healthy"
+      ? "text-ember"
+      : account.status === "cooling"
+        ? "text-ink-3"
         : "text-ink-4";
 
   return (
-    <div className="panel flex flex-wrap items-center gap-x-5 gap-y-3 p-4">
-      <div className="min-w-[180px] flex-1">
+    <div className="panel flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
+      <div className="min-w-[190px] flex-1">
         <div className="flex items-center gap-2">
           <span className={cn("size-1.5 rounded-full", tone)} />
-          <span className="text-[14px] font-semibold text-ink-1">{entry.name}</span>
-          <span className="font-mono text-[10px] text-ink-4">{entry.tag}</span>
+          <span className="text-[14px] text-ink-1">{account.label}</span>
+          <span
+            className={cn(
+              "rounded-full px-1.5 py-0.5 font-mono text-[9.5px] tracking-[0.06em] uppercase",
+              account.tier === "subscribed"
+                ? "bg-ember-soft text-ember"
+                : "bg-surface-2 text-ink-4",
+            )}
+          >
+            {account.tier}
+          </span>
         </div>
-        <div className="mt-2 h-1 overflow-hidden rounded-full bg-[var(--surface-3)]">
+        <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-3">
           <div
             className={cn(
               "h-full rounded-full transition-all",
-              entry.status === "healthy" ? "bg-cool" : "bg-warm",
+              account.status === "healthy" ? "bg-ember" : "bg-ink-4",
             )}
-            style={{ width: `${entry.health}%` }}
+            style={{ width: `${account.health}%` }}
           />
         </div>
       </div>
 
-      <dl className="flex gap-5 font-mono text-[11px] text-ink-4">
-        <div>
-          <dt className="text-ink-4/60">health</dt>
-          <dd className="text-ink-2">{entry.health}</dd>
-        </div>
-        <div>
-          <dt className="text-ink-4/60">slots</dt>
-          <dd className="text-ink-2">
-            {entry.inFlight}/{entry.maxParallel}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-ink-4/60">vram</dt>
-          <dd className="text-ink-2">{entry.vramGb}GB</dd>
-        </div>
-        <div>
-          <dt className="text-ink-4/60">ok/fail</dt>
-          <dd className="text-ink-2">
-            {entry.successes}/{entry.failures}
-          </dd>
-        </div>
+      <dl className="flex flex-wrap gap-5 font-mono text-[11px]">
+        {[
+          ["health", String(account.health)],
+          ["slots", `${account.inFlight}/${account.maxSlots}`],
+          ["conc", `×${account.concurrency}`],
+          ["ok/fail", `${account.successes}/${account.failures}`],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <dt className="text-ink-4/60">{k}</dt>
+            <dd className="mt-0.5 text-ink-2">{v}</dd>
+          </div>
+        ))}
       </dl>
 
       <div className="flex items-center gap-1.5">
-        {entry.status !== "healthy" ? (
+        {account.status !== "healthy" && (
           <button
             type="button"
-            onClick={() => void api.setPoolStatus(entry.id, "healthy")}
-            className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-ink-3 transition-colors hover:border-cool hover:text-cool"
+            onClick={() => void api.setAccountStatus(account.id, "healthy")}
+            className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-ink-3 transition-colors hover:border-ember hover:text-ember"
           >
             revive
           </button>
-        ) : null}
+        )}
         <button
           type="button"
           onClick={() =>
-            void api.setPoolStatus(
-              entry.id,
-              entry.status === "disabled" ? "healthy" : "disabled",
+            void api.setAccountStatus(
+              account.id,
+              account.status === "disabled" ? "healthy" : "disabled",
             )
           }
-          className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-ink-3 transition-colors hover:border-[var(--border-strong)] hover:text-ink-1"
+          className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
         >
-          {entry.status === "disabled" ? "enable" : "disable"}
+          {account.status === "disabled" ? "enable" : "disable"}
         </button>
         <button
           type="button"
-          onClick={() => void api.removePoolEntry(entry.id)}
-          aria-label="Hapus model"
-          className="rounded-full p-1.5 text-ink-4 transition-colors hover:text-warm"
+          onClick={() => void api.removeAccount(account.id)}
+          aria-label="Hapus akun"
+          className="rounded-full p-1.5 text-ink-4 transition-colors hover:text-ember"
         >
           <Trash2 className="size-3.5" />
         </button>
@@ -153,18 +162,18 @@ function TraceCard({ trace }: { trace: Trace }) {
         <span
           className={cn(
             "size-1.5 shrink-0 rounded-full",
-            trace.ok ? "bg-cool" : "bg-warm",
+            trace.ok ? "bg-ember" : "bg-ink-4",
           )}
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13.5px] text-ink-1">{trace.prompt}</p>
-          <p className="mt-0.5 font-mono text-[10px] text-ink-4">
-            {trace.agent} · {trace.model} → {trace.poolEntry} ·{" "}
+          <p className="mt-0.5 truncate font-mono text-[10px] text-ink-4">
+            {trace.agent} · {trace.model} → {trace.account} ·{" "}
             {(trace.totalMs / 1000).toFixed(1)}s · ↑{trace.tokensIn} ↓
             {trace.tokensOut}
           </p>
         </div>
-        <span className="font-mono text-[10px] text-ink-4">
+        <span className="shrink-0 font-mono text-[10px] text-ink-4">
           {open ? "hide" : `${trace.steps.length} steps`}
         </span>
       </button>
@@ -175,15 +184,15 @@ function TraceCard({ trace }: { trace: Trace }) {
             <div key={s.id} className="flex items-center gap-3 font-mono text-[11px]">
               <span
                 className={cn(
-                  "size-1.5 rounded-full",
+                  "size-1.5 shrink-0 rounded-full",
                   s.status === "ok"
-                    ? "bg-cool"
+                    ? "bg-ember"
                     : s.status === "blocked"
-                      ? "bg-warm"
-                      : "bg-[var(--accent-warm)]",
+                      ? "bg-[#d96a5a]"
+                      : "bg-ink-4",
                 )}
               />
-              <span className="w-24 shrink-0 text-ink-2">{s.label}</span>
+              <span className="w-20 shrink-0 text-ink-2">{s.label}</span>
               <span className="min-w-0 flex-1 truncate text-ink-4">{s.detail}</span>
               <span className="shrink-0 text-ink-4">{s.ms}ms</span>
             </div>
@@ -195,27 +204,35 @@ function TraceCard({ trace }: { trace: Trace }) {
 }
 
 const SEVERITY_TONE: Record<Severity, string> = {
-  low: "text-ink-3 bg-[var(--surface-2)]",
-  medium: "text-warm bg-warm-soft",
-  high: "text-warm bg-warm-soft",
-  critical: "text-[var(--destructive)] bg-[rgba(248,113,113,0.12)]",
+  low: "text-ink-3 bg-surface-2",
+  medium: "text-ink-2 bg-surface-3",
+  high: "text-ember bg-ember-soft",
+  critical: "text-[#d96a5a] bg-[rgba(217,106,90,0.12)]",
 };
 
 export default function Server() {
   const [tab, setTab] = useState<Tab>("pool");
-  const [host, setHost] = useState<Awaited<ReturnType<typeof api.host>> | null>(null);
-  const [pool, setPool] = useState<{
-    entries: PoolEntry[];
-    summary: Awaited<ReturnType<typeof api.pool>>["summary"];
-  } | null>(null);
+  const [gateway, setGateway] = useState<
+    Awaited<ReturnType<typeof api.gateway>> | null
+  >(null);
+  const [routes, setRoutes] = useState<RouteDef[]>([]);
+  const [pool, setPool] = useState<Awaited<ReturnType<typeof api.pool>> | null>(
+    null,
+  );
   const [traces, setTraces] = useState<Trace[]>([]);
-  const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.usage>> | null>(null);
-  const [findings, setFindings] = useState<Awaited<ReturnType<typeof api.findings>> | null>(null);
+  const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.usage>> | null>(
+    null,
+  );
+  const [findings, setFindings] = useState<
+    Awaited<ReturnType<typeof api.findings>> | null
+  >(null);
   const [keys, setKeys] = useState<Awaited<ReturnType<typeof api.listKeys>>>([]);
   const [newSecret, setNewSecret] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const reload = useCallback(async () => {
-    setHost(await api.host());
+    setGateway(await api.gateway());
+    setRoutes(await api.routes());
     setPool(await api.pool());
     setTraces(await api.traces());
     setUsage(await api.usage());
@@ -227,147 +244,157 @@ export default function Server() {
     void reload();
   }, [reload]);
 
-  const missing = MODELS.filter(
-    (m) => !pool?.entries.some((e) => e.tag === m.tag),
-  );
-
   return (
     <AppShell>
       <div className="scrollbar-thin h-full overflow-y-auto">
-        <div className="mx-auto max-w-[1100px] px-5 pt-8 pb-16">
-          <p className="eyebrow mb-3">self-hosted</p>
-          <h1 className="text-3xl font-bold tracking-tight text-ink-1">
+        <div className="mx-auto max-w-[1080px] px-5 pt-9 pb-16">
+          <p className="eyebrow">self-hosted</p>
+          <h1 className="display mt-4 text-[38px] text-ink-1 sm:text-[46px]">
             Server
           </h1>
-          <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-3">
-            Semua yang jalan di mesin lo: pool model lokal, jejak tiap giliran,
-            dan guardrail yang menyaring sebelum model-nya tersentuh.
+          <p className="mt-3 max-w-[54ch] text-[15px] leading-[1.7] text-ink-2">
+            Pool akun, jejak tiap giliran, dan guardrail yang menyaring
+            sebelum request meninggalkan server.
           </p>
 
-          {/* Host strip */}
-          {host && (
-            <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-border bg-[var(--surface-1)] px-4 py-3 font-mono text-[11px] text-ink-4">
-              <span className="inline-flex items-center gap-1.5 text-cool">
-                <span className="size-1.5 rounded-full bg-cool" />
-                online
+          {gateway && (
+            <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-border bg-surface-1 px-4 py-3 font-mono text-[11px] text-ink-4">
+              <span className="inline-flex items-center gap-1.5 text-ember">
+                <span className="size-1.5 rounded-full bg-ember" />
+                {gateway.status}
               </span>
-              <span>{host.gpu}</span>
-              <span>
-                {host.vramTotalGb}GB VRAM · parallel {host.parallel}
-              </span>
-              <span className="truncate">{host.ollamaUrl}</span>
-              <span>ollama {host.version}</span>
+              <span>{gateway.listenAddr}</span>
+              <span className="truncate">{gateway.upstream}</span>
+              <span>keepalive {gateway.keepaliveMs / 1000}s</span>
+              <span>credits {gateway.credits.toLocaleString("id-ID")}</span>
+              <span>memory {gateway.memoryEnabled ? "on" : "off"}</span>
             </div>
           )}
 
-          {/* Tabs */}
-          <div className="mt-7 flex flex-wrap gap-1.5">
+          <div className="mt-8 flex flex-wrap gap-1.5">
             {TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
                 onClick={() => setTab(t.key)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[11px] transition-all",
+                  "rounded-full border px-3.5 py-1.5 font-mono text-[11px] transition-colors",
                   tab === t.key
-                    ? "border-[var(--accent-cool)]/40 bg-cool-soft text-cool"
-                    : "border-border text-ink-4 hover:border-[var(--border-strong)] hover:text-ink-2",
+                    ? "border-ember/50 bg-ember-soft text-ember"
+                    : "border-border text-ink-4 hover:border-[rgba(244,241,234,0.2)] hover:text-ink-2",
                 )}
               >
-                <t.icon className="size-3.5" />
                 {t.label}
               </button>
             ))}
           </div>
 
-          <div className="mt-5">
+          <div className="mt-6">
             {tab === "pool" && pool && (
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <Stat
-                    label="models"
+                    label="akun"
                     value={`${pool.summary.healthy}/${pool.summary.total}`}
                     sub="sehat / total"
-                    accent="cool"
+                    hot
                   />
                   <Stat
-                    label="free slots"
+                    label="slot kosong"
                     value={pool.summary.freeSlots}
                     sub={`dari ${pool.summary.totalSlots} total`}
                   />
-                  <Stat label="avg health" value={pool.summary.avgHealth} />
+                  <Stat label="health rata-rata" value={pool.summary.avgHealth} />
                   <Stat
-                    label="vram"
-                    value={`${pool.summary.vramUsedGb}/${pool.summary.vramTotalGb}GB`}
-                    sub={
-                      pool.summary.vramUsedGb > pool.summary.vramTotalGb
-                        ? "over budget — model akan ke-evict"
-                        : "dalam budget"
-                    }
-                    accent={
-                      pool.summary.vramUsedGb > pool.summary.vramTotalGb
-                        ? "warm"
-                        : undefined
-                    }
+                    label="throughput"
+                    value={`${pool.summary.totalSlots - pool.summary.freeSlots}/${pool.summary.totalSlots}`}
+                    sub="slot terpakai"
                   />
                 </div>
 
-                {pool.summary.vramUsedGb > pool.summary.vramTotalGb && (
-                  <div className="flex items-start gap-2.5 rounded-xl border border-[var(--accent-warm)]/30 bg-warm-soft px-4 py-3">
-                    <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warm" />
-                    <p className="text-[13px] leading-relaxed text-ink-2">
-                      Total VRAM model yang aktif ({pool.summary.vramUsedGb}GB)
-                      melebihi kapasitas {pool.summary.vramTotalGb}GB. Scheduler
-                      akan evict model berulang kali buat muat — matikan yang nggak dipakai.
-                    </p>
-                  </div>
-                )}
+                <div className="panel p-5">
+                  <p className="mb-2 font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
+                    routing
+                  </p>
+                  <PoolDiagram
+                    accounts={pool.accounts.map((a) => ({
+                      label: a.label,
+                      health: a.health,
+                      busy: a.inFlight >= a.maxSlots,
+                    }))}
+                    className="max-w-[520px]"
+                  />
+                </div>
 
                 <div className="space-y-2">
-                  {pool.entries.map((e) => (
-                    <PoolRow key={e.id} entry={e} />
+                  {pool.accounts.map((a) => (
+                    <AccountRow key={a.id} account={a} />
                   ))}
                 </div>
 
-                {missing.length > 0 && (
-                  <div className="panel p-4">
-                    <p className="text-[13px] font-semibold text-ink-2">
-                      Tambah model ke pool
-                    </p>
-                    <p className="mt-1 text-[12px] text-ink-4">
-                      Model harus sudah di-pull di Ollama (`ollama pull &lt;tag&gt;`).
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {missing.map((m) => (
-                        <button
-                          key={m.tag}
-                          type="button"
-                          onClick={async () => {
-                            await api.addPoolEntry(m.tag);
-                            await reload();
-                            toast.success(`${m.label} ditambah ke pool`);
-                          }}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 font-mono text-[11px] text-ink-3 transition-colors hover:border-cool hover:text-cool"
-                        >
-                          <Plus className="size-3" />
-                          {m.tag}
-                          <span className="text-ink-4">{m.vramGb}GB</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <div className="panel p-5">
+                  <p className="text-[13.5px] text-ink-1">Tambah akun</p>
+                  <p className="mt-1 text-[12px] text-ink-4">
+                    Free dapat 1 slot, subscribed dapat 3. Token ditarik dari
+                    server, bukan disimpan di browser.
+                  </p>
+                  {adding ? (
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const form = new FormData(e.currentTarget);
+                        const label = String(form.get("label") ?? "").trim();
+                        const tier = form.get("tier") === "subscribed"
+                          ? "subscribed"
+                          : "free";
+                        if (!label) return;
+                        await api.addAccount(label, tier);
+                        setAdding(false);
+                        await reload();
+                        toast.success("Akun ditambahkan");
+                      }}
+                      className="mt-3 flex flex-wrap gap-2"
+                    >
+                      <input
+                        name="label"
+                        required
+                        placeholder="subscribed-3"
+                        className="min-w-[160px] flex-1 rounded-lg border border-border bg-bg-2 px-3 py-2 font-mono text-[12.5px] text-ink-1 outline-none placeholder:text-ink-4 focus:border-ember/60"
+                      />
+                      <select
+                        name="tier"
+                        className="rounded-lg border border-border bg-bg-2 px-3 py-2 font-mono text-[12.5px] text-ink-2 outline-none"
+                      >
+                        <option value="free">free · 1 slot</option>
+                        <option value="subscribed">subscribed · 3 slot</option>
+                      </select>
+                      <button type="submit" className="btn-primary">
+                        Simpan
+                      </button>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setAdding(true)}
+                      className="btn-ghost mt-3"
+                    >
+                      <Plus className="size-4" />
+                      Tambah
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
             {tab === "trace" && (
               <div className="space-y-2">
-                <p className="mb-3 text-[12px] text-ink-4">
-                  Setiap giliran, step demi step: guardrail → pool → muat model →
-                  generate. Ini yang bikin "kenapa jawabannya gitu" bisa ditelusuri.
+                <p className="text-[13px] leading-[1.7] text-ink-4">
+                  Setiap giliran dipecah jadi langkah: guardrail, resolusi
+                  effort, klaim slot, upstream. Itu yang bikin "kenapa
+                  jawabannya gitu" bisa ditelusuri.
                 </p>
                 {traces.length === 0 ? (
-                  <p className="panel p-6 text-center text-[13px] text-ink-4">
+                  <p className="panel p-8 text-center text-[13px] text-ink-4">
                     Belum ada trace. Kirim satu pesan di tab Chat dulu.
                   </p>
                 ) : (
@@ -379,14 +406,17 @@ export default function Server() {
             {tab === "usage" && usage && (
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <Stat label="requests" value={usage.requests} accent="cool" />
+                  <Stat label="request" value={usage.requests} hot />
                   <Stat label="tokens in" value={usage.tokensIn.toLocaleString()} />
-                  <Stat label="tokens out" value={usage.tokensOut.toLocaleString()} />
                   <Stat
-                    label="avg latency"
+                    label="tokens out"
+                    value={usage.tokensOut.toLocaleString()}
+                  />
+                  <Stat
+                    label="latency rata-rata"
                     value={`${(usage.avgLatencyMs / 1000).toFixed(1)}s`}
                     sub={`${usage.failed} gagal`}
-                    accent={usage.failed > 0 ? "warm" : undefined}
+                    hot={usage.failed > 0}
                   />
                 </div>
 
@@ -394,17 +424,17 @@ export default function Server() {
                   <p className="mb-4 font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
                     per model
                   </p>
-                  <div className="space-y-2.5">
+                  <div className="space-y-3">
                     {usage.perModel.map((m) => {
                       const max = usage.perModel[0]?.count || 1;
                       return (
                         <div key={m.model} className="flex items-center gap-3">
-                          <span className="w-40 shrink-0 truncate font-mono text-[11px] text-ink-3">
+                          <span className="w-52 shrink-0 truncate font-mono text-[11px] text-ink-3">
                             {m.model}
                           </span>
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-3)]">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3">
                             <div
-                              className="h-full rounded-full bg-cool"
+                              className="h-full rounded-full bg-ember"
                               style={{ width: `${(m.count / max) * 100}%` }}
                             />
                           </div>
@@ -416,6 +446,24 @@ export default function Server() {
                     })}
                   </div>
                 </div>
+
+                <div className="panel p-5">
+                  <p className="mb-4 font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
+                    endpoint
+                  </p>
+                  <ul className="space-y-2">
+                    {routes.map((r) => (
+                      <li
+                        key={r.path}
+                        className="flex flex-wrap items-baseline gap-x-3 font-mono text-[12px]"
+                      >
+                        <span className="w-12 shrink-0 text-ember">{r.method}</span>
+                        <span className="text-ink-2">{r.path}</span>
+                        <span className="text-ink-4">{r.note}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             )}
 
@@ -423,36 +471,33 @@ export default function Server() {
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <Stat
-                    label="findings"
+                    label="temuan"
                     value={findings.total}
-                    sub="semua waktu"
-                    accent={findings.total > 0 ? "warm" : "cool"}
+                    sub="sepanjang waktu"
+                    hot={findings.total > 0}
                   />
+                  <Stat label="kategori kena" value={findings.byCategory.length} />
                   <Stat
-                    label="categories hit"
-                    value={findings.byCategory.length}
-                  />
-                  <Stat
-                    label="coverage"
+                    label="cakupan"
                     value={ATTACK_TECHNIQUES.length}
                     sub="teknik aktif"
                   />
                 </div>
 
                 <div className="panel p-5">
-                  <p className="mb-1 font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
-                    findings terbaru
+                  <p className="font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
+                    temuan terbaru
                   </p>
                   {findings.recent.length === 0 ? (
                     <p className="mt-3 text-[13px] text-ink-4">
-                      Nggak ada yang kena. Bagus.
+                      Nggak ada yang kena.
                     </p>
                   ) : (
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-4 space-y-2.5">
                       {findings.recent.map((f) => (
                         <div
                           key={f.id}
-                          className="flex flex-wrap items-center gap-3 border-b border-border pb-2 last:border-0"
+                          className="flex flex-wrap items-center gap-3 border-b border-border pb-2.5 last:border-0 last:pb-0"
                         >
                           <span
                             className={cn(
@@ -475,12 +520,12 @@ export default function Server() {
                 </div>
 
                 <div className="panel p-5">
-                  <p className="mb-3 font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
+                  <p className="mb-3.5 font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
                     teknik yang diawasi
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {ATTACK_TECHNIQUES.map((a) => (
-                      <span key={a.name} className="tag tag-neutral">
+                      <span key={a.name} className="tag tag-quiet">
                         {a.name}
                       </span>
                     ))}
@@ -492,19 +537,17 @@ export default function Server() {
             {tab === "keys" && (
               <div className="space-y-4">
                 <div className="panel p-5">
-                  <p className="text-[14px] font-semibold text-ink-1">
-                    API keys
-                  </p>
-                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-4">
+                  <p className="text-[14px] text-ink-1">API keys</p>
+                  <p className="mt-1.5 text-[12.5px] leading-[1.7] text-ink-4">
                     Temen lo bisa nyambungin editor atau CLI-nya langsung ke
-                    server ini pakai key ini. Endpoint-nya OpenAI-compatible,
-                    jadi cukup isi base URL + key.
+                    server ini. Endpoint-nya OpenAI-compatible, jadi cukup isi
+                    base URL dan key.
                   </p>
 
-                  <div className="mt-4 rounded-lg border border-border bg-[var(--bg-2)] p-3.5">
+                  <div className="mt-4 rounded-lg border border-border bg-bg-2 p-3.5">
                     <p className="font-mono text-[10px] text-ink-4">base_url</p>
                     <div className="mt-1.5 flex items-center gap-2">
-                      <code className="min-w-0 flex-1 truncate font-mono text-[12px] text-cool">
+                      <code className="min-w-0 flex-1 truncate font-mono text-[12px] text-ember">
                         {window.location.origin}/v1
                       </code>
                       <button
@@ -515,7 +558,7 @@ export default function Server() {
                           );
                           toast.success("Base URL disalin");
                         }}
-                        className="shrink-0 rounded p-1 text-ink-4 transition-colors hover:text-cool"
+                        className="shrink-0 rounded p-1 text-ink-4 transition-colors hover:text-ember"
                         aria-label="Salin base URL"
                       >
                         <Copy className="size-3.5" />
@@ -524,8 +567,8 @@ export default function Server() {
                   </div>
 
                   {newSecret && (
-                    <div className="mt-3 rounded-lg border border-cool/40 bg-cool-soft p-3.5">
-                      <p className="font-mono text-[10px] text-cool">
+                    <div className="mt-3 rounded-lg border border-ember/40 bg-ember-soft p-3.5">
+                      <p className="font-mono text-[10px] text-ember">
                         Disalin? Ini ditampilkan sekali.
                       </p>
                       <div className="mt-1.5 flex items-center gap-2">
@@ -538,7 +581,7 @@ export default function Server() {
                             void navigator.clipboard?.writeText(newSecret);
                             toast.success("Key disalin");
                           }}
-                          className="shrink-0 rounded p-1 text-cool"
+                          className="shrink-0 rounded p-1 text-ember"
                           aria-label="Salin key"
                         >
                           <Copy className="size-3.5" />
@@ -573,17 +616,15 @@ export default function Server() {
                       <span
                         className={cn(
                           "size-1.5 rounded-full",
-                          k.revoked ? "bg-ink-4" : "bg-cool",
+                          k.revoked ? "bg-ink-4" : "bg-ember",
                         )}
                       />
-                      <span className="text-[13.5px] font-medium text-ink-1">
-                        {k.name}
-                      </span>
+                      <span className="text-[13.5px] text-ink-1">{k.name}</span>
                       <code className="font-mono text-[11px] text-ink-4">
                         {k.prefix}
                       </code>
                       {k.revoked ? (
-                        <span className="tag tag-neutral">revoked</span>
+                        <span className="tag tag-quiet">revoked</span>
                       ) : (
                         <span className="tag">
                           <Check className="size-3" />
@@ -605,7 +646,7 @@ export default function Server() {
                             setKeys(await api.listKeys());
                             toast.success("Key dicabut");
                           }}
-                          className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-ink-4 transition-colors hover:border-warm hover:text-warm"
+                          className="rounded-full border border-border px-2.5 py-1 font-mono text-[10px] text-ink-4 transition-colors hover:border-ember hover:text-ember"
                         >
                           revoke
                         </button>
@@ -615,6 +656,35 @@ export default function Server() {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="mt-14 flex flex-wrap items-center gap-4 border-t border-border pt-6 font-mono text-[10px] tracking-[0.1em] text-ink-4 uppercase">
+            <span className="inline-flex items-center gap-1.5">
+              <Activity className="size-3" />
+              pool
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <TrendingUp className="size-3" />
+              usage
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Shield className="size-3" />
+              guardrails
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <KeyRound className="size-3" />
+              keys
+            </span>
+            <span className="ml-auto inline-flex items-center gap-1.5">
+              {pool && pool.summary.freeSlots === 0 ? (
+                <AlertTriangle className="size-3 text-ember" />
+              ) : (
+                <Check className="size-3" />
+              )}
+              {pool
+                ? `${pool.summary.freeSlots} slot kosong`
+                : "memuat…"}
+            </span>
           </div>
         </div>
       </div>
