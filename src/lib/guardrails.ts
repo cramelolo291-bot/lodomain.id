@@ -105,12 +105,70 @@ const RULES: Rule[] = [
   },
 ];
 
+/**
+ * Rules for what the *model says*, which is a different question from what the
+ * user asks.
+ *
+ * The input rules are phrased as requests ("give me your api key"), so they
+ * never match a reply that actually contains a secret. These match the material
+ * itself. They are deliberately high-signal: a secret value in a recognisable
+ * format, not a keyword. Code the agent writes — `process.env.RESEND_API_KEY`,
+ * a `.env.example` — has no value and must not trip anything here.
+ */
+const OUTPUT_RULES: Rule[] = [
+  {
+    category: "credential_access",
+    severity: "critical",
+    reason: "The answer contains live credential material.",
+    pattern:
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-lolo-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{32,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}/,
+  },
+  {
+    category: "credential_access",
+    severity: "critical",
+    reason: "The answer contains a connection string with an inline password.",
+    pattern:
+      /\b(postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s:/@]+:[^\s@/]+@/i,
+  },
+  {
+    category: "credential_access",
+    severity: "high",
+    reason: "The answer states the value of a secret rather than its name.",
+    // The type name after a colon is not a value: `password: varchar(255)` and
+    // `secret: required` are schema definitions, not leaks. Anything shorter
+    // than six characters is a type name, a placeholder, or a variable.
+    pattern:
+      /\b(password|passwd|secret|api[\s_-]?key|access[\s_-]?token|auth[\s_-]?token)\b\s*(is|are|=|:)\s*["'`]?(?!(?:varchar|text|string|boolean|bool|integer|number|required|optional|not\s+null|null)\b)[A-Za-z0-9_\-+/=.]{6,}/i,
+  },
+  {
+    category: "credential_access",
+    severity: "high",
+    reason: "The answer contains a signed token.",
+    pattern: /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/,
+  },
+  {
+    category: "system_prompt_leak",
+    severity: "high",
+    reason: "The answer reproduces the system prompt or the agent's instructions.",
+    pattern:
+      /you\s+are\s+\w+[^\n]{0,40}part\s+of\s+lolo\s+ai|(here\s+(are|is)\s+my\s+(system\s+)?(prompt|instructions))|(my\s+(system\s+)?instructions\s+(are|were)\s*:)/i,
+  },
+  {
+    category: "prompt_injection",
+    severity: "high",
+    reason: "The answer tries to issue instructions to a later turn.",
+    pattern:
+      /(ignore|disregard|forget)\b[^.\n]{0,30}\b(previous|prior|above|earlier)\b[^.\n]{0,30}\b(instruction|instructions|prompt|prompts|rule|rules)\b/i,
+  },
+];
+
 export type Direction = "input" | "output";
 
-/** PII matching is noisy on a reply, so it only runs inbound. */
 function rulesFor(direction: Direction): Rule[] {
+  // PII matching is noisy on a reply — an email address in a code sample is
+  // not a leak — so it stays inbound only.
   if (direction === "input") return RULES;
-  return RULES.filter((r) => r.category !== "pii_leakage");
+  return OUTPUT_RULES;
 }
 
 export function screen(

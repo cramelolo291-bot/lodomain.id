@@ -19,6 +19,7 @@ import { auth } from "./routes/auth";
 import { routes } from "./routes/conversations";
 import { dataSpace } from "./routes/data-space";
 import { panel } from "./routes/panel";
+import { turnStream } from "./routes/turn-stream";
 import { openai } from "./routes/openai-compat";
 
 export function createApp() {
@@ -33,6 +34,7 @@ export function createApp() {
   app.use("/api/auth/verify", rateLimit({ limit: 20, windowMs: 60_000, scope: "verify" }));
   app.use("/api/keys", rateLimit({ limit: 20, windowMs: 60_000, scope: "keys" }));
   app.use("/api/turn", rateLimit({ limit: 60, windowMs: 60_000, scope: "turn" }));
+  app.use("/api/turn/stream", rateLimit({ limit: 60, windowMs: 60_000, scope: "turn" }));
   app.use("/v1/*", rateLimit({ limit: env.API_RATE_LIMIT, windowMs: env.API_RATE_WINDOW_MS, scope: "v1" }));
   app.use("/api/*", bodyLimit(2_000_000));
 
@@ -59,6 +61,9 @@ export function createApp() {
   app.route("/api", routes);
   app.route("/api", dataSpace);
   app.route("/api", panel);
+  // Mounted after `routes` so the shared body limit applies, and before the
+  // OpenAI router whose prefix is `/`.
+  app.route("/api", turnStream);
   app.route("/", openai);
 
   app.onError((err, c) => {

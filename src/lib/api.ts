@@ -184,6 +184,14 @@ export type TurnResult =
 
 export type CommandResult = { out: string[]; code: number };
 
+/** Events a streaming turn emits. Mirrors server/pipeline/run-turn.ts. */
+export type TurnEvent =
+  | { type: "step"; step: { stage: string; detail: string; ms: number; status: "ok" | "warn" | "error" } }
+  | { type: "delta"; text: string }
+  | { type: "file"; path: string; op: "created" | "modified" }
+  | { type: "table"; name: string; rows: number }
+  | { type: "done"; result: TurnResult };
+
 // ── Mock backend ──────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "lolo.mock.v1";
@@ -1109,6 +1117,48 @@ function httpApi() {
     revokeKey: (id: string) => send<void>(`/api/keys/${id}`, "DELETE"),
     runTurn: (args: { conversationId: string; prompt: string; agent: string; model: string }) =>
       send<TurnResult>("/api/turn", "POST", args),
+    /**
+     * Server-sent events for one turn. Yields the same event shapes the server
+     * emits: step, delta, file, table, done.
+     */
+    runTurnStream: async function* (args: {
+      conversationId: string;
+      prompt: string;
+      agent: string;
+      model: string;
+    }): AsyncGenerator<TurnEvent> {
+      const res = await fetch(`${BASE}/api/turn/stream`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        body: JSON.stringify(args),
+      });
+      if (!res.ok) throw new Error(`${res.status} /api/turn/stream`);
+      if (!res.body) return;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE frames are separated by a blank line; a chunk can split one.
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+
+        for (const frame of frames) {
+          for (const line of frame.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            yield JSON.parse(payload) as TurnEvent;
+          }
+        }
+      }
+    },
   };
 }
 

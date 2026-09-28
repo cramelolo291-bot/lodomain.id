@@ -19,7 +19,8 @@
     "test:schema": "tsx scripts/test-schema.ts",
     "test:sql": "tsx scripts/test-sql.ts",
     "test:api": "tsx scripts/test-api.ts",
-    "test": "npm run test:data && npm run test:turn && npm run test:server && npm run test:schema && npm run test:sql && npm run test:api"
+    "test:pipeline": "tsx scripts/test-pipeline.ts",
+    "test": "npm run test:data && npm run test:turn && npm run test:server && npm run test:schema && npm run test:sql && npm run test:api && npm run test:pipeline"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
