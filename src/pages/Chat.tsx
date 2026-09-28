@@ -14,43 +14,30 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronsRight,
   Copy,
+  ExternalLink,
   FileCode2,
   FileJson,
   FileText,
-  Folder,
   GitBranch,
   Loader2,
-  Monitor,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   RefreshCw,
+  Rocket,
   ShieldAlert,
   Square,
+  Terminal as TerminalIcon,
   Trash2,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-const WORKSPACE = { repo: "lolo/lolo-ai", branch: "main", port: 3000 };
-
-type Panel = "preview" | "code" | "terminal" | "changes";
-
-const PANELS: Array<{ key: Panel; label: string }> = [
-  { key: "preview", label: "Preview" },
-  { key: "code", label: "Code" },
-  { key: "terminal", label: "Terminal" },
-  { key: "changes", label: "Changes" },
-];
-
-const SUGGESTIONS = [
-  "Bikin aplikasi web baru",
-  "Tambah rate limiting ke endpoint chat",
-  "Bikin skema Postgres untuk gateway",
-  "Tambah magic-link authentication",
-  "Bikin model pool dengan health scoring",
-];
-
-const FILE_ICON: Record<string, typeof FileCode2> = {
+type FileIcon = typeof FileCode2;
+const FILE_ICON: Record<string, FileIcon> = {
   typescript: FileCode2,
   javascript: FileCode2,
   json: FileJson,
@@ -59,7 +46,22 @@ const FILE_ICON: Record<string, typeof FileCode2> = {
   sql: FileText,
 };
 
-/** Minimal markdown with fenced blocks. */
+const SUGGESTIONS = [
+  "Bikin aplikasi web baru",
+  "Tambah rate limiting ke endpoint chat",
+  "Bikin skema Postgres untuk gateway",
+  "Tambah magic-link authentication",
+];
+
+/** freebuff-style generated project name. */
+function projectSlug() {
+  const a = ["amber", "quiet", "sharp", "plain", "lucid", "brisk", "hollow"];
+  const b = ["otters", "lanes", "fields", "shores", "peaks", "harbor"];
+  const c = ["try", "run", "build", "draft", "draft"];
+  const pick = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)]!;
+  return `${pick(a)}-${pick(b)}-${pick(c)}`;
+}
+
 function renderBody(text: string) {
   return text.split(/```/).map((block, i) => {
     if (i % 2 === 1) {
@@ -129,7 +131,15 @@ function renderBody(text: string) {
   });
 }
 
-function DiffView({ change }: { change: FileChange }) {
+/** A file change, rendered inline in the conversation. */
+function ChangeCard({
+  change,
+  defaultOpen = false,
+}: {
+  change: FileChange;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   const rows = useMemo(
     () => diffLines(change.before ?? "", change.after),
     [change],
@@ -138,13 +148,25 @@ function DiffView({ change }: { change: FileChange }) {
   const Icon = FILE_ICON[langOf(change.path)] ?? FileCode2;
 
   return (
-    <div className="border-b border-border last:border-0">
-      <div className="sticky top-0 flex items-center gap-2 border-b border-border bg-[var(--bg-2)] px-4 py-2 font-mono text-[11px]">
+    <div className="mt-3 overflow-hidden rounded-[10px] border border-border bg-[var(--bg-2)]">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-2"
+      >
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-ink-4 transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
         <Icon className="size-3.5 shrink-0 text-ink-4" />
-        <span className="truncate text-ink-2">{change.path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-2">
+          {change.path}
+        </span>
         <span
           className={cn(
-            "shrink-0 rounded px-1.5 py-0.5 text-[9.5px] uppercase",
+            "shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.06em] uppercase",
             change.op === "created"
               ? "bg-[rgba(74,160,110,0.14)] text-[#4aa06e]"
               : "bg-ember-soft text-ember",
@@ -152,37 +174,44 @@ function DiffView({ change }: { change: FileChange }) {
         >
           {change.op}
         </span>
-        <span className="ml-auto shrink-0 text-[#4aa06e]">+{added}</span>
-        <span className="shrink-0 text-[#c85a50]">−{removed}</span>
-      </div>
-      <div className="scrollbar-thin max-h-72 overflow-auto">
-        {rows.map((r, i) => (
-          <div
-            key={i}
-            className={cn(
-              "flex font-mono text-[11.5px] leading-[1.75]",
-              r.kind === "+" && "bg-[rgba(74,160,110,0.10)]",
-              r.kind === "-" && "bg-[rgba(200,90,80,0.10)]",
-            )}
-          >
-            <span
+        <span className="shrink-0 font-mono text-[10.5px] text-[#4aa06e]">
+          +{added}
+        </span>
+        <span className="shrink-0 font-mono text-[10.5px] text-[#c85a50]">
+          −{removed}
+        </span>
+      </button>
+
+      {open && (
+        <div className="scrollbar-thin max-h-64 overflow-auto border-t border-border">
+          {rows.map((r, i) => (
+            <div
+              key={i}
               className={cn(
-                "w-5 shrink-0 select-none pl-2 text-center",
-                r.kind === "+"
-                  ? "text-[#4aa06e]"
-                  : r.kind === "-"
-                    ? "text-[#c85a50]"
-                    : "text-ink-4/40",
+                "flex font-mono text-[11.5px] leading-[1.7]",
+                r.kind === "+" && "bg-[rgba(74,160,110,0.10)]",
+                r.kind === "-" && "bg-[rgba(200,90,80,0.10)]",
               )}
             >
-              {r.kind === " " ? "" : r.kind}
-            </span>
-            <span className="whitespace-pre-wrap break-words px-2 text-ink-2">
-              {r.text}
-            </span>
-          </div>
-        ))}
-      </div>
+              <span
+                className={cn(
+                  "w-4 shrink-0 select-none text-center",
+                  r.kind === "+"
+                    ? "text-[#4aa06e]"
+                    : r.kind === "-"
+                      ? "text-[#c85a50]"
+                      : "text-transparent",
+                )}
+              >
+                {r.kind === " " ? "" : r.kind}
+              </span>
+              <span className="whitespace-pre-wrap break-words px-2 text-ink-2">
+                {r.text}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -223,19 +252,25 @@ export default function Chat() {
   >([]);
   const [project, setProject] = useState<Project | null>(null);
   const [changes, setChanges] = useState<FileChange[]>([]);
-  const [openFile, setOpenFile] = useState<string | null>(null);
+  const [slug] = useState(projectSlug);
 
   const [agent, setAgent] = useState("lolo");
   const [model, setModel] = useState(MODELS[0]!.id);
   const [effort, setEffort] = useState("");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [panel, setPanel] = useState<Panel>("preview");
   const [railOpen, setRailOpen] = useState(false);
   const [modelMenu, setModelMenu] = useState(false);
   const [agentMenu, setAgentMenu] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [deployed, setDeployed] = useState(false);
 
+  /** Right-hand pane. Everything lives together; nothing is tabbed away. */
+  const [paneOpen, setPaneOpen] = useState(true);
+  const [pane, setPane] = useState<"preview" | "file">("preview");
+  const [openFile, setOpenFile] = useState<string | null>(null);
+  const [split, setSplit] = useState(50);
+  const [termOpen, setTermOpen] = useState(false);
   const [termLines, setTermLines] = useState<string[]>([
     "$ bun run dev",
     "listening on 3000 · postgres connected",
@@ -248,7 +283,9 @@ export default function Chat() {
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
+  const dragging = useRef(false);
 
   const activeModel = useMemo(() => getModel(model), [model]);
   const paths = useMemo(
@@ -259,8 +296,14 @@ export default function Chat() {
     () => (project ? previewHtml(project) : null),
     [project],
   );
-  const changeTotal = useMemo(
-    () => changes.map((c) => diffStats(diffLines(c.before ?? "", c.after))),
+  const totals = useMemo(
+    () =>
+      changes
+        .map((c) => diffStats(diffLines(c.before ?? "", c.after)))
+        .reduce(
+          (acc, d) => ({ added: acc.added + d.added, removed: acc.removed + d.removed }),
+          { added: 0, removed: 0 },
+        ),
     [changes],
   );
 
@@ -287,10 +330,31 @@ export default function Chat() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 220) {
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 240) {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages, revealChars, busy]);
+
+  /** Drag the divider to resize the conversation against the live pane. */
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragging.current || !shellRef.current) return;
+      const box = shellRef.current.getBoundingClientRect();
+      const pct = ((e.clientX - box.left) / box.width) * 100;
+      setSplit(Math.min(75, Math.max(28, pct)));
+    };
+    const onUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
 
   const stream = useCallback((messageId: string, text: string) => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
@@ -352,6 +416,7 @@ export default function Chat() {
     setActiveId(c.id);
     setMessages([]);
     setChanges([]);
+    setDeployed(false);
     setRevealId(null);
     setRailOpen(false);
     navigate(`/chat/${c.id}`, { replace: true });
@@ -378,6 +443,7 @@ export default function Chat() {
         setProject(proj);
         setConversations(await api.listConversations());
         setBusy(false);
+        setDeployed(false);
 
         const reply = [...fresh].reverse().find((m) => m.role === "assistant");
         if (reply && !reply.blocked) stream(reply.id, reply.content);
@@ -446,18 +512,15 @@ export default function Chat() {
     [activeId, navigate, openConversation],
   );
 
-  const runTerm = useCallback(
-    async (cmd: string) => {
-      const res = await api.runCommand(cmd);
-      setTermLines((prev) => [
-        ...prev,
-        `$ ${cmd}`,
-        ...res.out,
-        ...(res.code === 0 ? [] : [`exit ${res.code}`]),
-      ]);
-    },
-    [],
-  );
+  const runTerm = useCallback(async (cmd: string) => {
+    const res = await api.runCommand(cmd);
+    setTermLines((prev) => [
+      ...prev,
+      `$ ${cmd}`,
+      ...res.out,
+      ...(res.code === 0 ? [] : [`exit ${res.code}`]),
+    ]);
+  }, []);
 
   const pickAgent = (key: string) => {
     setAgent(key);
@@ -478,13 +541,22 @@ export default function Chat() {
     setTimeout(() => setCopiedId(null), 1600);
   };
 
+  const openChangedFile = (path: string) => {
+    setPane("file");
+    setPaneOpen(true);
+    setOpenFile(path);
+  };
+
   return (
     <AppShell>
-      <div className="mx-auto flex h-full max-w-[1720px] gap-3 px-3 pt-3 sm:px-5 sm:pt-4">
+      <div
+        ref={shellRef}
+        className="mx-auto flex h-full max-w-[1800px] gap-3 px-3 pt-3 sm:px-5 sm:pt-4"
+      >
         {/* Runs rail */}
         <aside
           className={cn(
-            "scrollbar-thin hidden w-64 shrink-0 flex-col overflow-y-auto lg:flex",
+            "scrollbar-thin hidden w-60 shrink-0 flex-col overflow-y-auto lg:flex",
             railOpen && "flex",
           )}
         >
@@ -492,7 +564,7 @@ export default function Chat() {
             <Plus className="size-4" />
             Run baru
           </button>
-          <p className="eyebrow mt-6 mb-2">riwayat</p>
+          <p className="eyebrow mt-6 mb-2">proyek</p>
           <div className="space-y-0.5">
             {conversations.map((c) => (
               <div
@@ -516,13 +588,13 @@ export default function Chat() {
                     {c.title}
                   </span>
                   <span className="truncate font-mono text-[10px] text-ink-4">
-                    {getAgent(c.agent).name} · {c.model.split("/")[1] ?? c.model}
+                    {getAgent(c.agent).name}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => void remove(c.id)}
-                  aria-label="Hapus run"
+                  aria-label="Hapus proyek"
                   className="shrink-0 rounded p-1 text-ink-4 opacity-0 transition-opacity group-hover:opacity-100 hover:text-ember"
                 >
                   <Trash2 className="size-3.5" />
@@ -532,58 +604,90 @@ export default function Chat() {
           </div>
         </aside>
 
-        {/* Workspace */}
-        <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-1">
+        {/* Conversation */}
+        <div
+          className={cn(
+            "flex min-w-0 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-1",
+            paneOpen ? "hidden md:flex" : "flex flex-1",
+          )}
+          style={paneOpen ? { width: `${split}%` } : undefined}
+        >
+          {/* Header */}
           <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
             <button
               type="button"
               onClick={() => setRailOpen((v) => !v)}
               className="btn-ghost !px-2.5 !py-1.5 lg:hidden"
-              aria-label="Riwayat"
+              aria-label="Proyek"
             >
               <Plus className="size-3.5 rotate-45" />
             </button>
             <div className="flex min-w-0 items-center gap-2.5">
-              <span className="truncate font-mono text-[12.5px] text-ink-1">
-                {WORKSPACE.repo}
-              </span>
+              <span className="truncate text-[13px] text-ink-1">{slug}</span>
               <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2 py-0.5 font-mono text-[10.5px] text-ink-3">
                 <GitBranch className="size-3" />
-                {WORKSPACE.branch}
-              </span>
-              <span className="hidden shrink-0 font-mono text-[10.5px] text-ink-4 sm:inline">
-                {paths.length} files
+                main
               </span>
             </div>
+
             <div className="ml-auto flex items-center gap-2">
-              <span className="tag tag-quiet">
-                <span
-                  className={cn(
-                    "size-1.5 rounded-full",
-                    busy ? "animate-pulse bg-ember" : "bg-ink-4",
-                  )}
-                />
-                {busy ? "running" : "idle"}
-              </span>
+              <button
+                type="button"
+                onClick={() => setTermOpen((v) => !v)}
+                className="btn-ghost !px-2.5 !py-1.5"
+                aria-label="Terminal"
+              >
+                <TerminalIcon className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaneOpen(true)}
+                className="btn-ghost !px-2.5 !py-1.5 md:hidden"
+                aria-label="Buka preview"
+              >
+                <ExternalLink className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeployed(true);
+                  setPane("preview");
+                  setPaneOpen(true);
+                }}
+                disabled={paths.length === 0}
+                className="btn-primary !px-3 !py-1.5 !text-[12px]"
+              >
+                {deployed ? (
+                  <>
+                    <Check className="size-3.5" />
+                    Live
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="size-3.5" />
+                    Deploy
+                  </>
+                )}
+              </button>
             </div>
           </header>
 
           {/* Transcript */}
           <div
             ref={scrollRef}
-            className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8"
+            className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-7"
           >
-            <div className="mx-auto w-full max-w-[880px]">
+            <div className="mx-auto w-full max-w-[720px]">
               {messages.length === 0 && (
                 <div className="flex min-h-full flex-col items-center justify-center py-8 text-center">
-                  <h1 className="display text-[36px] leading-[1.1] text-ink-1 sm:text-[48px]">
+                  <h1 className="display text-[34px] leading-[1.1] text-ink-1 sm:text-[44px]">
                     Bilang aja mau
                     <br />
                     bikin apa.
                   </h1>
-                  <p className="mt-5 max-w-[46ch] text-[15.5px] leading-[1.75] text-ink-2">
-                    Agent akan memetakan dulu, nulis filenya, nge-typecheck, lalu
-                    nampilin diff-nya di panel Changes. Preview-nya jalan beneran.
+                  <p className="mt-5 max-w-[42ch] text-[15px] leading-[1.75] text-ink-2">
+                    Agent nulis filenya, nge-typecheck, lalu nampilin hasilnya
+                    di sebelah kanan. Nggak ada tab buat pindah-pindah.
                   </p>
                   <div className="mt-8 flex flex-wrap justify-center gap-2">
                     {SUGGESTIONS.map((s) => (
@@ -600,38 +704,10 @@ export default function Chat() {
                       </button>
                     ))}
                   </div>
-                  <div className="mt-12 grid w-full max-w-[640px] gap-px overflow-hidden rounded-[14px] border border-border bg-border sm:grid-cols-2">
-                    {AGENTS.map((a) => (
-                      <button
-                        key={a.key}
-                        type="button"
-                        onClick={() => pickAgent(a.key)}
-                        className="bg-surface-1 p-4 text-left transition-colors hover:bg-surface-2"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              "size-1.5 rounded-full",
-                              a.accent === "warm" ? "bg-ember" : "bg-[#9db4a8]",
-                            )}
-                          />
-                          <span className="text-[12.5px] font-medium text-ink-1">
-                            {a.name}
-                          </span>
-                          <span className="ml-auto font-mono text-[9.5px] tracking-[0.08em] text-ink-4 uppercase">
-                            {a.tagline}
-                          </span>
-                        </div>
-                        <p className="mt-1.5 text-[11.5px] leading-[1.6] text-ink-4">
-                          {a.description}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
                 </div>
               )}
 
-              <div className="space-y-9">
+              <div className="space-y-8">
                 {messages.map((m) => {
                   const who = getAgent(m.agent ?? "lolo");
                   const isUser = m.role === "user";
@@ -639,6 +715,7 @@ export default function Chat() {
                   const text = streaming
                     ? m.content.slice(0, Math.floor(revealChars))
                     : m.content;
+                  const isNewest = messages[messages.length - 1]?.id === m.id;
 
                   return (
                     <article
@@ -649,17 +726,17 @@ export default function Chat() {
                       )}
                     >
                       {!isUser && (
-                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <div className="mb-2.5 flex flex-wrap items-center gap-2">
                           <span
                             className={cn(
                               "size-1.5 rounded-full",
                               who.accent === "warm" ? "bg-ember" : "bg-[#9db4a8]",
                             )}
                           />
-                          <span className="font-mono text-[12px] text-ink-2">
+                          <span className="font-mono text-[11.5px] text-ink-2">
                             {who.name}
                           </span>
-                          <span className="font-mono text-[10.5px] text-ink-4">
+                          <span className="font-mono text-[10px] text-ink-4">
                             {m.model}
                           </span>
                           {m.guardrail && (
@@ -673,16 +750,16 @@ export default function Chat() {
 
                       <div
                         className={cn(
-                          "max-w-full rounded-[14px] border px-4 py-3.5 text-[15px] sm:px-5",
+                          "max-w-full rounded-[14px] border px-4 py-3.5 text-[14.5px]",
                           isUser
-                            ? "max-w-[85%] border-ember/25 bg-ember-soft text-ink-1"
+                            ? "max-w-[88%] border-ember/25 bg-ember-soft text-ink-1"
                             : m.blocked
                               ? "border-border bg-surface-2 text-ink-2"
-                              : "border-border bg-background/40 text-ink-2",
+                              : "w-full border-border bg-background/40 text-ink-2",
                         )}
                       >
                         {m.blocked ? (
-                          <p className="text-[14px] leading-[1.7]">{text}</p>
+                          <p className="text-[13.5px] leading-[1.7]">{text}</p>
                         ) : (
                           renderBody(text)
                         )}
@@ -691,15 +768,31 @@ export default function Chat() {
                         )}
                       </div>
 
+                      {/* File changes live right here in the conversation */}
+                      {!isUser && !m.blocked && !streaming && isNewest && changes.length > 0 && (
+                        <div className="w-full space-y-2">
+                          {changes.map((c) => (
+                            <button
+                              key={c.path}
+                              type="button"
+                              onClick={() => openChangedFile(c.path)}
+                              className="block w-full text-left"
+                            >
+                              <ChangeCard change={c} />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
                       {!isUser && !m.blocked && (
                         <>
-                          <ul className="mt-4 space-y-1.5">
+                          <ul className="mt-3.5 space-y-1.5">
                             <Step done>Read the request · {who.name} dispatched</Step>
                             <Step done>Screened 7 guardrail rules · clean</Step>
                             {m.latencyMs ? (
                               <Step done>
-                                Done · {(m.latencyMs / 1000).toFixed(1)}s · ↑
-                                {m.tokensIn ?? 0} ↓{m.tokensOut ?? 0} tokens
+                                Done · {(m.latencyMs / 1000).toFixed(1)}s ·{" "}
+                                {changes.length} file ditulis
                               </Step>
                             ) : (
                               <Step running>Working…</Step>
@@ -707,7 +800,7 @@ export default function Chat() {
                           </ul>
 
                           {!streaming && (
-                            <div className="mt-3.5 flex items-center gap-1 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100">
+                            <div className="mt-3 flex items-center gap-1 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100">
                               <button
                                 type="button"
                                 onClick={() => copy(m.id, m.content)}
@@ -738,7 +831,7 @@ export default function Chat() {
               </div>
 
               {busy && messages[messages.length - 1]?.role === "user" && (
-                <ul className="mt-9 space-y-2">
+                <ul className="mt-8 space-y-2">
                   <Step done>Read the request · {getAgent(agent).name} dispatched</Step>
                   <Step done>Screened 7 guardrail rules · clean</Step>
                   <Step running>Mapping the project…</Step>
@@ -750,35 +843,303 @@ export default function Chat() {
             </div>
           </div>
 
-          {/* Panels + composer */}
-          <div className="shrink-0 border-t border-border">
-            <div className="flex items-center gap-1 border-b border-border px-3">
-              {PANELS.map((p) => (
+          {/* Terminal drawer, inside the same column */}
+          {termOpen && (
+            <div className="flex h-44 shrink-0 flex-col border-t border-border bg-[var(--bg-2)]">
+              <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-[1.85] text-ink-3">
+                {termLines.map((l, i) => (
+                  <p
+                    key={i}
+                    className={cn(
+                      l.startsWith("$") ? "text-ink-2" : undefined,
+                      l.startsWith("exit") || l.includes("No such")
+                        ? "text-[#c85a50]"
+                        : l.startsWith("✓")
+                          ? "text-[#4aa06e]"
+                          : undefined,
+                    )}
+                  >
+                    {l}
+                  </p>
+                ))}
+              </div>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const cmd = termInput.trim();
+                  if (!cmd) return;
+                  setTermInput("");
+                  void runTerm(cmd);
+                }}
+                className="flex items-center gap-2 border-t border-border px-3 py-2"
+              >
+                <span className="font-mono text-[11px] text-ember">$</span>
+                <input
+                  value={termInput}
+                  onChange={(e) => setTermInput(e.target.value)}
+                  placeholder="ls -R · cat server/index.ts · wc · tsc"
+                  className="flex-1 bg-transparent font-mono text-[11px] text-ink-2 outline-none placeholder:text-ink-4"
+                />
+                <span className="hidden font-mono text-[9.5px] text-ink-4 sm:inline">
+                  ls · cat · wc · tsc
+                </span>
+              </form>
+            </div>
+          )}
+
+          {/* Composer */}
+          <div className="shrink-0 border-t border-border px-4 py-3.5 sm:px-6">
+            <div className="mx-auto w-full max-w-[720px]">
+              <div className="relative rounded-[14px] border border-border bg-background/50 p-2.5 transition-colors focus-within:border-ember/50">
+                <textarea
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  rows={2}
+                  placeholder={`Ask ${getAgent(agent).name}…`}
+                  className="scrollbar-thin max-h-40 w-full resize-none bg-transparent px-1.5 py-1 text-[14.5px] leading-[1.6] text-ink-1 outline-none placeholder:text-ink-4"
+                />
+
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAgentMenu((v) => !v);
+                        setModelMenu(false);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 font-mono text-[11px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
+                    >
+                      <span
+                        className={cn(
+                          "size-1.5 rounded-full",
+                          getAgent(agent).accent === "warm"
+                            ? "bg-ember"
+                            : "bg-[#9db4a8]",
+                        )}
+                      />
+                      {getAgent(agent).name}
+                      <ChevronDown className="size-3" />
+                    </button>
+                    {agentMenu && (
+                      <>
+                        <button
+                          type="button"
+                          aria-label="Tutup"
+                          className="fixed inset-0 z-10 cursor-default"
+                          onClick={() => setAgentMenu(false)}
+                        />
+                        <div className="absolute bottom-full left-0 z-20 mb-2 w-64 overflow-hidden rounded-[12px] border border-border bg-surface-2 shadow-2xl">
+                          {AGENTS.map((a) => (
+                            <button
+                              key={a.key}
+                              type="button"
+                              onClick={() => pickAgent(a.key)}
+                              className="block w-full border-b border-border px-3.5 py-2.5 text-left transition-colors last:border-0 hover:bg-surface-3"
+                            >
+                              <span className="text-[12.5px] text-ink-1">
+                                {a.name}
+                              </span>
+                              <span className="mt-0.5 block text-[11px] leading-snug text-ink-4">
+                                {a.tagline}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModelMenu((v) => !v);
+                        setAgentMenu(false);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 font-mono text-[11px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
+                    >
+                      {activeModel.label}
+                      <ChevronDown className="size-3" />
+                    </button>
+                    {modelMenu && (
+                      <>
+                        <button
+                          type="button"
+                          aria-label="Tutup"
+                          className="fixed inset-0 z-10 cursor-default"
+                          onClick={() => setAgentMenu(false)}
+                        />
+                        <div className="scrollbar-thin absolute bottom-full left-0 z-20 mb-2 max-h-80 w-96 overflow-y-auto rounded-[12px] border border-border bg-surface-2 shadow-2xl">
+                          {MODELS.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => pickModel(m.id)}
+                              className="block w-full border-b border-border px-3.5 py-3 text-left transition-colors last:border-0 hover:bg-surface-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[12.5px] text-ink-1">
+                                  {m.label}
+                                </span>
+                                {m.unmetered ? (
+                                  <span className="tag">unmetered</span>
+                                ) : m.freeHours > 0 ? (
+                                  <span className="tag tag-quiet">
+                                    {m.freeHours} jam/hari
+                                  </span>
+                                ) : (
+                                  <span className="tag tag-quiet">berbayar</span>
+                                )}
+                              </div>
+                              <p className="mt-1 text-[11.5px] leading-snug text-ink-3">
+                                {m.bestFor}
+                              </p>
+                              <p className="mt-1 font-mono text-[10px] text-ink-4">
+                                {m.id} ·{" "}
+                                {m.efforts.length > 0
+                                  ? m.efforts.join(" · ")
+                                  : "effort dibuang"}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {activeModel.efforts.length > 0 && (
+                    <div className="hidden gap-1 sm:flex">
+                      {activeModel.efforts.map((lv) => (
+                        <button
+                          key={lv}
+                          type="button"
+                          onClick={() => setEffort(effort === lv ? "" : lv)}
+                          className={cn(
+                            "rounded-full border px-2 py-1 font-mono text-[10.5px] transition-colors",
+                            effort === lv
+                              ? "border-ember/50 bg-ember-soft text-ember"
+                              : "border-border text-ink-4 hover:text-ink-2",
+                          )}
+                        >
+                          {lv}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => (busy ? stop() : void send())}
+                    disabled={!busy && (!draft.trim() || Boolean(revealId))}
+                    aria-label={busy ? "Berhenti" : "Kirim"}
+                    className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-full bg-ember text-[#17120f] transition-all hover:bg-[var(--accent-warm-hover)] disabled:opacity-30"
+                  >
+                    {busy ? (
+                      <Square className="size-3 fill-current" />
+                    ) : (
+                      <ArrowUp className="size-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 font-mono text-[10px] text-ink-4">
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "size-1.5 rounded-full",
+                      busy ? "animate-pulse bg-ember" : "bg-[#4aa06e]",
+                    )}
+                  />
+                  sandbox {busy ? "running" : "idle"}
+                </span>
+                <span>{paths.length} files</span>
+                {changes.length > 0 && (
+                  <span>
+                    <span className="text-[#4aa06e]">+{totals.added}</span>{" "}
+                    <span className="text-[#c85a50]">−{totals.removed}</span>
+                  </span>
+                )}
+                <span className="ml-auto">Enter kirim</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Divider */}
+        {paneOpen && (
+          <div
+            onPointerDown={() => {
+              dragging.current = true;
+              document.body.style.cursor = "col-resize";
+              document.body.style.userSelect = "none";
+            }}
+            className="hidden w-1 shrink-0 cursor-col-resize items-center justify-center transition-colors hover:bg-ember/40 md:flex"
+          >
+            <ChevronsRight className="size-3 rotate-0 text-ink-4/50" />
+          </div>
+        )}
+
+        {/* Live pane — preview and code together, no tabs */}
+        {paneOpen && (
+          <div
+            className={cn(
+              "min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-1",
+              paneOpen ? "flex" : "hidden",
+            )}
+          >
+            <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2.5">
+              <div className="flex gap-1">
                 <button
-                  key={p.key}
                   type="button"
-                  onClick={() => setPanel(p.key)}
+                  onClick={() => setPane("preview")}
                   className={cn(
-                    "relative px-3.5 py-2.5 text-[12.5px] transition-colors",
-                    panel === p.key ? "text-ink-1" : "text-ink-4 hover:text-ink-2",
+                    "rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+                    pane === "preview"
+                      ? "bg-ember-soft text-ember"
+                      : "text-ink-4 hover:text-ink-2",
                   )}
                 >
-                  {p.label}
-                  {p.key === "changes" && changes.length > 0 && (
-                    <span className="ml-1.5 rounded-full bg-ember-soft px-1.5 py-0.5 font-mono text-[9.5px] text-ember">
-                      {changes.length}
-                    </span>
-                  )}
-                  {panel === p.key && (
-                    <span className="absolute inset-x-2.5 -bottom-px h-px bg-ember" />
-                  )}
+                  Preview
                 </button>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setPane("file")}
+                  className={cn(
+                    "rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+                    pane === "file"
+                      ? "bg-ember-soft text-ember"
+                      : "text-ink-4 hover:text-ink-2",
+                  )}
+                >
+                  Code · {paths.length}
+                </button>
+              </div>
+              {deployed && (
+                <span className="tag tag-quiet ml-2">
+                  <span className="size-1.5 rounded-full bg-[#4aa06e]" />
+                  {slug}.lolo.app
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setPaneOpen(false)}
+                aria-label="Tutup panel"
+                className="ml-auto rounded p-1 text-ink-4 transition-colors hover:text-ink-1"
+              >
+                <PanelRightClose className="size-4" />
+              </button>
+            </header>
 
-            {/* Preview — renders the project's real index.html */}
-            {panel === "preview" && (
-              <div className="relative h-64 border-b border-border bg-[var(--bg-2)]">
+            {pane === "preview" ? (
+              <div className="relative min-h-0 flex-1 bg-[var(--bg-2)]">
                 {preview ? (
                   <iframe
                     title="Preview"
@@ -787,33 +1148,28 @@ export default function Chat() {
                     className="h-full w-full border-0"
                   />
                 ) : (
-                  <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-                    <Monitor className="size-5 text-ink-4" />
-                    <p className="text-[13px] text-ink-3">
+                  <div className="flex h-full flex-col items-center justify-center gap-2.5 px-8 text-center">
+                    <p className="text-[14px] text-ink-2">
                       Belum ada yang bisa dirender.
                     </p>
-                    <p className="max-w-[36ch] text-[12px] leading-relaxed text-ink-4">
-                      Minta agent bikin aplikasi web, dan file{" "}
+                    <p className="max-w-[34ch] text-[12.5px] leading-relaxed text-ink-4">
+                      Minta agent bikin aplikasi web. Begitu file{" "}
                       <code className="font-mono text-ink-3">index.html</code>{" "}
-                      akan muncul di sini.
+                      ada, halamannya nampil di sini — otomatis, tanpa refresh.
                     </p>
                   </div>
                 )}
+                <span className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/80 px-2.5 py-1 font-mono text-[10px] text-ink-3 backdrop-blur">
+                  <span className="size-1.5 rounded-full bg-[#4aa06e]" />
+                  live · :3000
+                </span>
               </div>
-            )}
-
-            {/* Code — real file tree + real file contents */}
-            {panel === "code" && (
-              <div className="grid h-64 grid-cols-[minmax(160px,240px)_1fr] border-b border-border">
+            ) : (
+              <div className="grid min-h-0 flex-1 grid-cols-[minmax(150px,210px)_1fr]">
                 <div className="scrollbar-thin overflow-y-auto border-r border-border py-1.5">
-                  {paths.length === 0 && (
-                    <p className="px-3 py-2 text-[12px] text-ink-4">
-                      project kosong
-                    </p>
-                  )}
                   {paths.map((p) => {
                     const Icon = FILE_ICON[langOf(p)] ?? FileCode2;
-                    const created = changes.find((c) => c.path === p);
+                    const touched = changes.some((c) => c.path === p);
                     return (
                       <button
                         key={p}
@@ -828,7 +1184,7 @@ export default function Chat() {
                       >
                         <Icon className="size-3.5 shrink-0 text-ink-4" />
                         <span className="truncate">{p.split("/").pop()}</span>
-                        {created && (
+                        {touched && (
                           <span className="ml-auto size-1.5 shrink-0 rounded-full bg-ember" />
                         )}
                       </button>
@@ -842,270 +1198,33 @@ export default function Chat() {
                 </pre>
               </div>
             )}
-
-            {/* Terminal — real commands against the real tree */}
-            {panel === "terminal" && (
-              <div className="flex h-64 flex-col border-b border-border bg-[var(--bg-2)]">
-                <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4 font-mono text-[11.5px] leading-[1.9] text-ink-3">
-                  {termLines.map((l, i) => (
-                    <p
-                      key={i}
-                      className={cn(
-                        l.startsWith("$") ? "text-ink-2" : undefined,
-                        l.startsWith("exit") || l.includes("No such")
-                          ? "text-[#c85a50]"
-                          : l.startsWith("✓") || l.includes("  ")
-                          ? "text-[#4aa06e]"
-                          : undefined,
-                      )}
-                    >
-                      {l}
-                    </p>
-                  ))}
-                </div>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const cmd = termInput.trim();
-                    if (!cmd) return;
-                    setTermInput("");
-                    void runTerm(cmd);
-                  }}
-                  className="flex items-center gap-2 border-t border-border px-4 py-2"
-                >
-                  <span className="font-mono text-[11.5px] text-ember">$</span>
-                  <input
-                    value={termInput}
-                    onChange={(e) => setTermInput(e.target.value)}
-                    placeholder="ls -R · cat server/index.ts · wc · tsc"
-                    className="flex-1 bg-transparent font-mono text-[11.5px] text-ink-2 outline-none placeholder:text-ink-4"
-                  />
-                  <span className="hidden font-mono text-[10px] text-ink-4 sm:inline">
-                    ls · cat · wc · tsc
-                  </span>
-                </form>
-              </div>
-            )}
-
-            {/* Changes — real diffs of what the agent just wrote */}
-            {panel === "changes" && (
-              <div className="scrollbar-thin h-64 overflow-y-auto border-b border-border bg-[var(--bg-2)]">
-                {changes.length === 0 ? (
-                  <p className="p-6 text-center text-[13px] text-ink-4">
-                    Belum ada perubahan. Kirim satu prompt, lalu diff-nya muncul
-                    di sini.
-                  </p>
-                ) : (
-                  <>
-                    <div className="sticky top-0 flex items-center gap-3 border-b border-border bg-[var(--bg-2)] px-4 py-2 font-mono text-[11px] text-ink-3">
-                      <Folder className="size-3.5 text-ink-4" />
-                      {changes.length} file diubah
-                      <span className="ml-auto">
-                        <span className="text-[#4aa06e]">
-                          +{changeTotal.reduce((s, d) => s + d.added, 0)}
-                        </span>{" "}
-                        <span className="text-[#c85a50]">
-                          −{changeTotal.reduce((s, d) => s + d.removed, 0)}
-                        </span>
-                      </span>
-                    </div>
-                    {changes.map((c) => (
-                      <DiffView key={c.path} change={c} />
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Composer */}
-            <div className="px-3 py-3 sm:px-6 sm:py-4">
-              <div className="mx-auto w-full max-w-[880px]">
-                <div className="relative rounded-[14px] border border-border bg-background/50 p-2.5 transition-colors focus-within:border-ember/50">
-                  <textarea
-                    ref={inputRef}
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void send();
-                      }
-                    }}
-                    rows={2}
-                    placeholder="Ask Lolo…"
-                    className="scrollbar-thin max-h-44 w-full resize-none bg-transparent px-1.5 py-1 text-[15px] leading-[1.6] text-ink-1 outline-none placeholder:text-ink-4"
-                  />
-
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAgentMenu((v) => !v);
-                          setModelMenu(false);
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 font-mono text-[11px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
-                      >
-                        <span
-                          className={cn(
-                            "size-1.5 rounded-full",
-                            getAgent(agent).accent === "warm"
-                              ? "bg-ember"
-                              : "bg-[#9db4a8]",
-                          )}
-                        />
-                        {getAgent(agent).name}
-                        <ChevronDown className="size-3" />
-                      </button>
-                      {agentMenu && (
-                        <>
-                          <button
-                            type="button"
-                            aria-label="Tutup"
-                            className="fixed inset-0 z-10 cursor-default"
-                            onClick={() => setAgentMenu(false)}
-                          />
-                          <div className="absolute bottom-full left-0 z-20 mb-2 w-64 overflow-hidden rounded-[12px] border border-border bg-surface-2 shadow-2xl">
-                            {AGENTS.map((a) => (
-                              <button
-                                key={a.key}
-                                type="button"
-                                onClick={() => pickAgent(a.key)}
-                                className="block w-full border-b border-border px-3.5 py-3 text-left transition-colors last:border-0 hover:bg-surface-3"
-                              >
-                                <span className="text-[13px] text-ink-1">
-                                  {a.name}
-                                </span>
-                                <span className="mt-0.5 block text-[11.5px] leading-snug text-ink-4">
-                                  {a.description}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setModelMenu((v) => !v);
-                          setAgentMenu(false);
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 font-mono text-[11px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
-                      >
-                        {activeModel.label}
-                        <ChevronDown className="size-3" />
-                      </button>
-                      {modelMenu && (
-                        <>
-                          <button
-                            type="button"
-                            aria-label="Tutup"
-                            className="fixed inset-0 z-10 cursor-default"
-                            onClick={() => setAgentMenu(false)}
-                          />
-                          <div className="scrollbar-thin absolute bottom-full left-0 z-20 mb-2 max-h-80 w-96 overflow-y-auto rounded-[12px] border border-border bg-surface-2 shadow-2xl">
-                            {MODELS.map((m) => (
-                              <button
-                                key={m.id}
-                                type="button"
-                                onClick={() => pickModel(m.id)}
-                                className="block w-full border-b border-border px-3.5 py-3 text-left transition-colors last:border-0 hover:bg-surface-3"
-                              >
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-[13px] text-ink-1">
-                                    {m.label}
-                                  </span>
-                                  {m.unmetered ? (
-                                    <span className="tag">unmetered</span>
-                                  ) : m.freeHours > 0 ? (
-                                    <span className="tag tag-quiet">
-                                      {m.freeHours} jam/hari
-                                    </span>
-                                  ) : (
-                                    <span className="tag tag-quiet">berbayar</span>
-                                  )}
-                                </div>
-                                <p className="mt-1 text-[11.5px] leading-snug text-ink-3">
-                                  {m.bestFor}
-                                </p>
-                                <p className="mt-1 font-mono text-[10px] text-ink-4">
-                                  {m.id} ·{" "}
-                                  {m.efforts.length > 0
-                                    ? m.efforts.join(" · ")
-                                    : "effort dibuang"}
-                                </p>
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    {activeModel.efforts.length > 0 && (
-                      <div className="flex gap-1">
-                        {activeModel.efforts.map((lv) => (
-                          <button
-                            key={lv}
-                            type="button"
-                            onClick={() => setEffort(effort === lv ? "" : lv)}
-                            className={cn(
-                              "rounded-full border px-2 py-1 font-mono text-[10.5px] transition-colors",
-                              effort === lv
-                                ? "border-ember/50 bg-ember-soft text-ember"
-                                : "border-border text-ink-4 hover:text-ink-2",
-                            )}
-                          >
-                            {lv}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => (busy ? stop() : void send())}
-                      disabled={!busy && (!draft.trim() || Boolean(revealId))}
-                      aria-label={busy ? "Berhenti" : "Kirim"}
-                      className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-full bg-ember text-[#17120f] transition-all hover:bg-[var(--accent-warm-hover)] disabled:opacity-30"
-                    >
-                      {busy ? (
-                        <Square className="size-3 fill-current" />
-                      ) : (
-                        <ArrowUp className="size-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 font-mono text-[10px] text-ink-4">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span
-                      className={cn(
-                        "size-1.5 rounded-full",
-                        busy ? "animate-pulse bg-ember" : "bg-[#4aa06e]",
-                      )}
-                    />
-                    {busy ? "generating" : "sandbox running"}
-                  </span>
-                  <span>{paths.length} files</span>
-                  <span>{activeModel.vendor}</span>
-                  {changes.length > 0 && (
-                    <span>
-                      {changes.length} file diubah
-                    </span>
-                  )}
-                  <span className="ml-auto">
-                    Enter kirim · Shift+Enter baris baru
-                  </span>
-                </div>
-              </div>
-            </div>
           </div>
-        </section>
+        )}
+
+        {/* Collapsed state — reopen */}
+        {!paneOpen && (
+          <button
+            type="button"
+            onClick={() => setPaneOpen(true)}
+            className="hidden shrink-0 items-center gap-2 self-start rounded-[12px] border border-border bg-surface-1 px-3.5 py-2.5 font-mono text-[11px] text-ink-3 transition-colors hover:text-ink-1 md:flex"
+          >
+            <PanelRightOpen className="size-3.5" />
+            Preview
+          </button>
+        )}
       </div>
+
+      {/* Mobile toggle */}
+      {paneOpen && (
+        <button
+          type="button"
+          onClick={() => setPaneOpen(false)}
+          className="fixed right-4 bottom-4 z-40 flex size-11 items-center justify-center rounded-full border border-border bg-surface-2 text-ink-2 shadow-xl md:hidden"
+          aria-label="Tutup preview"
+        >
+          <X className="size-4" />
+        </button>
+      )}
     </AppShell>
   );
 }
