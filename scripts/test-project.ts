@@ -193,6 +193,15 @@ async function main() {
   check("package name is derived, not constant", pkg.name === "toko-online", pkg.name);
   check("it carries a real dev script", typeof pkg.scripts.dev === "string" && pkg.scripts.dev.length > 0);
 
+  // The generated app used to cap its own width at 30rem, which in a preview
+  // pane rendered as a narrow strip floating in the middle of the screen.
+  const cap = /max-width:\s*([\d.]+)rem/.exec(shopHtml)?.[1];
+  check("the layout is not capped to a phone-width strip", Number(cap) >= 64, `max-width: ${cap}rem`);
+  check("the page is fluid, not fixed", /width:\s*100%/.test(shopHtml));
+  check("it has a desktop breakpoint", /@media \(min-width: 900px\)/.test(shopHtml));
+  check("it has a wide breakpoint", /@media \(min-width: 1280px\)/.test(shopHtml));
+  check("the header is fluid too", /\.top \{[^}]*clamp\(/.test(shopHtml.replace(/\n/g, " ")));
+
   console.log("\n— a PDF is a real PDF —");
   const { markdownToPdf, pdfFilename } = await import("../server/build/pdf");
   const doc = markdownToPdf(

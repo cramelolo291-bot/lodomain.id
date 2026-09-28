@@ -31,6 +31,15 @@ const STARTERS = [
   "API CRUD untuk blog dengan komentar",
 ];
 
+/**
+ * A stable, URL-safe name for a project.
+ *
+ * Derived only from the title — no randomness. The randomness used to be
+ * `Math.random()` inside this function, and the caller asked for `name` and
+ * `url` separately, so each call produced a different suffix: the card showed
+ * `toko-online-a3f` as the name and `toko-online-9xz.lolo.app` as the URL.
+ * Deriving both from one value is the only way they can agree.
+ */
 function projectSlug(prompt: string): string {
   const words = prompt
     .toLowerCase()
@@ -38,9 +47,7 @@ function projectSlug(prompt: string): string {
     .split(/\s+/)
     .filter((w) => w.length > 2)
     .slice(0, 3);
-  const base = words.join("-") || "my-app";
-  const suffix = Math.random().toString(36).slice(2, 5);
-  return `${base}-${suffix}`;
+  return words.join("-") || "my-app";
 }
 
 function timeAgo(ts: number): string {
@@ -68,15 +75,22 @@ export default function Web() {
         api.listConversations(),
         api.getProject(),
       ]);
+      // Every conversation writes into the one project this user has, so the
+      // file count belongs to the project, not to any single run. It used to be
+      // attached to the first card only, which made every other card claim to
+      // be empty — a number the UI invented rather than read.
       const fileCount = Object.keys(project.files).length;
       setProjects(
-        convs.map((c, i) => ({
-          id: c.id,
-          name: projectSlug(c.title),
-          url: `${projectSlug(c.title)}.lolo.app`,
-          updatedAt: c.updatedAt,
-          files: i === 0 ? fileCount : 0,
-        })),
+        convs.map((c) => {
+          const name = projectSlug(c.title);
+          return {
+            id: c.id,
+            name,
+            url: `${name}.lolo.app`,
+            updatedAt: c.updatedAt,
+            files: fileCount,
+          };
+        }),
       );
     })();
   }, []);

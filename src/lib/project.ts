@@ -339,12 +339,17 @@ ${items.join("\n")}
         font: 400 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
         padding-bottom: calc(76px + env(safe-area-inset-bottom));
       }
-      .shell { max-width: 30rem; margin: 0 auto; padding: 0 1rem; }
+      .shell {
+        width: 100%;
+        max-width: 72rem;
+        margin: 0 auto;
+        padding: 0 clamp(1rem, 4vw, 2.5rem);
+      }
 
       .top {
         position: sticky; top: 0; z-index: 10;
         display: flex; align-items: center; gap: .75rem;
-        padding: .9rem 1rem;
+        padding: .9rem clamp(1rem, 4vw, 2.5rem);
         background: color-mix(in srgb, var(--bg) 88%, transparent);
         backdrop-filter: blur(12px);
         border-bottom: 1px solid var(--line);
@@ -430,14 +435,29 @@ ${items.join("\n")}
       }
       .add:hover { background: var(--ember); border-color: var(--ember); color: #1a0d08; }
 
-      .hero { padding: 2rem 0 1.75rem; }
-      .hero h1 { margin: 0 0 .5rem; font-size: 1.875rem; line-height: 1.15; letter-spacing: -0.03em; }
-      .hero p { margin: 0 0 1.25rem; color: var(--ink-2); }
+      .hero {
+        padding: clamp(2.5rem, 8vw, 5rem) 0 clamp(2rem, 5vw, 3.5rem);
+        max-width: 46rem;
+      }
+      .hero h1 {
+        margin: 0 0 .75rem;
+        font-size: clamp(2rem, 6vw, 3.25rem);
+        line-height: 1.08;
+        letter-spacing: -0.035em;
+      }
+      .hero p {
+        margin: 0 0 1.75rem;
+        max-width: 40ch;
+        font-size: clamp(1rem, 2vw, 1.125rem);
+        color: var(--ink-2);
+      }
       .cta {
-        padding: .7rem 1.35rem; border: 0; border-radius: 11px;
+        padding: .8rem 1.6rem; border: 0; border-radius: 11px;
         background: var(--ember); color: #1a0d08;
         font: inherit; font-weight: 600; cursor: pointer;
+        transition: transform .18s ease, background .18s ease;
       }
+      .cta:hover { transform: translateY(-1px); background: #e08a6b; }
 
       .tabbar {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
@@ -456,9 +476,25 @@ ${items.join("\n")}
       .tab span { font-size: 1.0625rem; }
       .tab.on { color: var(--ember); }
 
-      @media (min-width: 640px) {
+      @media (min-width: 900px) {
         .grid { grid-template-columns: repeat(3, 1fr); }
-        .tabbar { max-width: 30rem; margin: 0 auto; border-inline: 1px solid var(--line); }
+        .grid.one { grid-template-columns: repeat(2, 1fr); }
+        /* A fixed bottom bar stops being right once there is room to put the
+           nav in the header instead. */
+        .tabbar {
+          position: sticky;
+          top: 0;
+          max-width: none;
+          border-top: 0;
+          border-bottom: 1px solid var(--line);
+          background: transparent;
+          backdrop-filter: none;
+        }
+        body { padding-bottom: 0; }
+      }
+      @media (min-width: 1280px) {
+        .grid { grid-template-columns: repeat(4, 1fr); }
+        .grid.one { grid-template-columns: repeat(3, 1fr); }
       }
     </style>
   </head>
