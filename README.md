@@ -190,8 +190,24 @@ error never goes away.
 
 The dev server is bound to loopback, `HOST=127.0.0.1` is forced, and it is
 stopped on restart and on server shutdown so it cannot outlive the process that
-started it. A WebSocket upgrade does not survive the proxy, which is a real
-limit: an HMR client that needs one will fall back to the static output.
+started it.
+
+HMR travels over a WebSocket, and a WebSocket is not an HTTP request — after the
+handshake it is two raw sockets speaking a framing protocol that neither side
+should be parsing again. Re-encoding it as a `fetch` would mean reimplementing
+that protocol, and getting it wrong fails in a way that looks like a bundler
+bug. So `server/build/tunnel.ts` does not proxy it. It copies bytes: the
+request line and `Host` are rewritten to the dev server's port, the two sockets
+are piped into each other, and nothing is interpreted again.
+
+`server/index.ts` hands `upgrade` events to `handleLiveUpgrade`, which redoes
+the session check and the project-ownership check that the normal routes
+already do — the upgrade path is not a way around them. A dev server that is
+not running gets a `502` written back down the same connection, in band, so the
+client sees a reason rather than a socket that closed for no visible cause.
+
+The port is never taken from the request. It comes from the process this server
+started, and the only thing a client controls is the path.
 
 ### What this is not
 
