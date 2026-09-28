@@ -106,7 +106,7 @@ export function AppShell({
                 <span className="text-[14px] font-medium tracking-tight text-ink-1">
                   Lolo AI
                 </span>
-                <span className="mono-label mt-1 !text-[9px]">studio</span>
+                <span className="mono-label mt-1 text-[9px]">studio</span>
               </span>
             </NavLink>
             <span className="hidden h-5 w-px bg-line sm:block" />
@@ -130,7 +130,7 @@ export function AppShell({
                     await signOut();
                     navigate("/");
                   }}
-                  className="btn-solid !px-3 !py-1.5 !text-[12px] !text-ink-3 hover:!text-ink-1"
+                  className="btn-solid px-3 py-1.5 text-[12px] text-ink-3 hover:text-ink-1"
                 >
                   <LogOut className="size-3.5" />
                   <span className="hidden sm:inline">Keluar</span>

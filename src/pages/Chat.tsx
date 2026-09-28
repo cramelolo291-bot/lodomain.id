@@ -670,7 +670,7 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => setRailOpen((v) => !v)}
-              className="btn-ghost !px-2.5 !py-1.5 lg:hidden"
+              className="btn-ghost px-2.5 py-1.5 lg:hidden"
               aria-label="Proyek"
             >
               <Plus className="size-3.5 rotate-45" />
@@ -687,7 +687,7 @@ export default function Chat() {
               <button
                 type="button"
                 onClick={() => setTermOpen((v) => !v)}
-                className="btn-ghost !px-2.5 !py-1.5"
+                className="btn-ghost px-2.5 py-1.5"
                 aria-label="Terminal"
               >
                 <TerminalIcon className="size-3.5" />
@@ -695,7 +695,7 @@ export default function Chat() {
               <button
                 type="button"
                 onClick={() => setPaneOpen(true)}
-                className="btn-ghost !px-2.5 !py-1.5 md:hidden"
+                className="btn-ghost px-2.5 py-1.5 md:hidden"
                 aria-label="Buka preview"
               >
                 <ExternalLink className="size-3.5" />
@@ -708,7 +708,7 @@ export default function Chat() {
                   setPaneOpen(true);
                 }}
                 disabled={paths.length === 0}
-                className="btn-primary !px-3 !py-1.5 !text-[12px]"
+                className="btn-primary px-3 py-1.5 text-[12px]"
               >
                 {deployed ? (
                   <>

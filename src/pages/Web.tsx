@@ -163,7 +163,7 @@ export default function Web() {
                   key={s}
                   type="button"
                   onClick={() => setPrompt(s)}
-                  className="btn-solid !px-3 !py-1.5 !text-[12.5px] !text-ink-3 hover:!text-ink-1"
+                  className="btn-solid px-3 py-1.5 text-[12.5px] text-ink-3 hover:text-ink-1"
                 >
                   {s}
                 </button>

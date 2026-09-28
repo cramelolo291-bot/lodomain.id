@@ -58,7 +58,7 @@ function Auth({ redirectAfterAuth = "/chat" }: { redirectAfterAuth?: string }) {
       <main className="relative z-10 flex flex-1 items-center justify-center px-5 pb-20">
         <div className="w-full max-w-[400px]">
           {phase === "sent" ? (
-            <div className="panel p-7 text-center">
+            <div className="lift sheen p-7 text-center">
               <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-full bg-ember-soft">
                 <Check className="size-5 text-ember" />
               </div>
@@ -83,7 +83,7 @@ function Auth({ redirectAfterAuth = "/chat" }: { redirectAfterAuth?: string }) {
             </div>
           ) : (
             <>
-              <p className="eyebrow mb-4">masuk</p>
+              <p className="mono-label mb-4">masuk</p>
               <h1 className="display text-[34px] text-ink-1">
                 Masuk tanpa password
               </h1>
@@ -93,7 +93,7 @@ function Auth({ redirectAfterAuth = "/chat" }: { redirectAfterAuth?: string }) {
               </p>
 
               <form onSubmit={handleSubmit} className="mt-7">
-                <div className="panel flex items-center gap-2 p-1.5 pl-3.5 transition-colors focus-within:border-ember/60">
+                <div className="lift flex items-center gap-2 p-1.5 pl-3.5 transition-colors focus-within:border-[rgba(var(--ember-rgb),0.5)]">
                   <Mail className="size-4 shrink-0 text-ink-4" />
                   <Input
                     type="email"

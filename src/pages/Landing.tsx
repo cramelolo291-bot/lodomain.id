@@ -166,8 +166,8 @@ export default function Landing() {
           <div className="grid items-center gap-16 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <Reveal>
-                <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-1/60 px-3 py-1.5 font-mono text-[11px] text-ink-3 backdrop-blur-sm">
-                  <span className="size-1.5 rounded-full bg-ember" />
+                <span className="glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-[11px] text-ink-3">
+                  <span className="pulse-dot" />
                   self-hosted · 9 subagents · no API key
                 </span>
               </Reveal>
@@ -211,7 +211,7 @@ export default function Landing() {
                     [`${ATTACK_TECHNIQUES.length}`, "serangan diawasi"],
                   ].map(([n, label]) => (
                     <div key={label}>
-                      <p className="display text-[26px] leading-none text-ink-1">
+                      <p className="stat-num text-[26px]">
                         {n}
                       </p>
                       <p className="mt-2 font-mono text-[10px] tracking-[0.08em] text-ink-4 uppercase">
