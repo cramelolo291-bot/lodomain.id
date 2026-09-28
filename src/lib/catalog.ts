@@ -34,6 +34,10 @@ export type ModelDef = {
   /** Modalities beyond text, where the upstream supports them. */
   extra?: string;
   efforts: Effort[];
+  /** Daily free hours drawn from the shared Freebucks allowance. */
+  freeHours: number;
+  /** True when the model draws nothing from the daily allowance. */
+  unmetered: boolean;
   accent: Accent;
 };
 
@@ -52,6 +56,8 @@ export const MODELS: ModelDef[] = [
     contextK: 524,
     vision: false,
     efforts: ["low", "high", "max"],
+    freeHours: 20,
+    unmetered: false,
     accent: "warm",
   },
   {
@@ -63,6 +69,8 @@ export const MODELS: ModelDef[] = [
     contextK: 128,
     vision: false,
     efforts: ["low", "high", "max"],
+    freeHours: 10,
+    unmetered: false,
     accent: "cool",
   },
   {
@@ -74,6 +82,8 @@ export const MODELS: ModelDef[] = [
     contextK: 128,
     vision: true,
     efforts: ["low", "medium", "high", "xhigh", "max"],
+    freeHours: 5,
+    unmetered: false,
     accent: "cool",
   },
   {
@@ -85,6 +95,8 @@ export const MODELS: ModelDef[] = [
     contextK: 128,
     vision: true,
     efforts: [],
+    freeHours: 10,
+    unmetered: false,
     accent: "cool",
   },
   {
@@ -96,6 +108,8 @@ export const MODELS: ModelDef[] = [
     contextK: 128,
     vision: true,
     efforts: [],
+    freeHours: 3,
+    unmetered: false,
     accent: "warm",
   },
   {
@@ -107,6 +121,8 @@ export const MODELS: ModelDef[] = [
     contextK: 524,
     vision: false,
     efforts: [],
+    freeHours: 20,
+    unmetered: false,
     accent: "cool",
   },
   {
@@ -118,6 +134,8 @@ export const MODELS: ModelDef[] = [
     contextK: 524,
     vision: false,
     efforts: [],
+    freeHours: 10,
+    unmetered: false,
     accent: "warm",
   },
   {
@@ -129,6 +147,8 @@ export const MODELS: ModelDef[] = [
     contextK: 1024,
     vision: true,
     efforts: ["low", "high", "max"],
+    freeHours: 0,
+    unmetered: true,
     accent: "warm",
   },
   {
@@ -141,6 +161,8 @@ export const MODELS: ModelDef[] = [
     vision: true,
     extra: "audio · video · pdf",
     efforts: ["low", "medium", "high", "xhigh", "max"],
+    freeHours: 0,
+    unmetered: false,
     accent: "cool",
   },
   {
@@ -152,9 +174,18 @@ export const MODELS: ModelDef[] = [
     contextK: 1024,
     vision: false,
     efforts: ["minimal", "low", "medium", "high", "xhigh"],
+    freeHours: 6,
+    unmetered: false,
     accent: "cool",
   },
 ];
+
+/**
+ * The daily allowance, as freebuff publishes it: 100 Freebucks a day, refilled
+ * at midnight Pacific, not carried over. Hours-per-model are what the whole
+ * allowance buys on that one model, so they are not additive.
+ */
+export const DAILY_FREEBUCKS = 100;
 
 /**
  * Models the effort matrix says to strip. Kept alongside the picker because
@@ -178,6 +209,8 @@ export const SPECIALIST_MODELS: ModelDef[] = [
     contextK: 1024,
     vision: true,
     efforts: [],
+    freeHours: 0,
+    unmetered: true,
     accent: "cool",
   },
 ];
@@ -208,6 +241,20 @@ export const KEEPALIVE_MS = 45_000;
 /** How long a 429 makes the caller wait before retrying. */
 export const QUEUE_RETRY_MS = 2_000;
 
+/**
+ * What a self-hosted agent gateway displaces, at the list prices the vendors
+ * publish. Used for the comparison section; nothing here is a claim about
+ * Lolo, only about the alternatives.
+ */
+export const ALTERNATIVES = [
+  { name: "Devin", price: 2400 },
+  { name: "Claude Code", price: 1200 },
+  { name: "Cursor", price: 720 },
+  { name: "Codex", price: 240 },
+  { name: "OpenCode", price: 120 },
+] as const;
+
+/** The agents freebuff ships, used as the specialist roster. */
 export type AgentDef = {
   key: string;
   name: string;

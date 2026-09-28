@@ -6,6 +6,8 @@
 
 import {
   AGENTS,
+  ALTERNATIVES,
+  DAILY_FREEBUCKS,
   GATEWAY_ROUTES,
   MODELS,
   TIER_LIMITS,
@@ -867,6 +869,8 @@ export function subscribe(fn: () => void): () => void {
 
 export {
   AGENTS,
+  ALTERNATIVES,
+  DAILY_FREEBUCKS,
   GATEWAY_ROUTES,
   MODELS,
   TIER_LIMITS,
