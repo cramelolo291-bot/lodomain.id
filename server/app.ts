@@ -19,6 +19,7 @@ import { ValidationError } from "./http/validate";
 import { auth } from "./routes/auth";
 import { routes } from "./routes/conversations";
 import { dataSpace } from "./routes/data-space";
+import { build } from "./routes/build";
 import { panel } from "./routes/panel";
 import { turnStream } from "./routes/turn-stream";
 import { openai } from "./routes/openai-compat";
@@ -41,6 +42,9 @@ export function createApp() {
   // `/api/turn/stream` deliberately limits itself in its own router, because
   // that mount point also carries a per-conversation budget. Limiting it here
   // too would charge every stream twice against the same bucket.
+  // A build installs dependencies and runs a compiler. It is the most expensive
+  // thing this server does by a wide margin, so it gets its own tight budget.
+  app.use("/api/projects/*/build", rateLimit({ limit: 6, windowMs: 60_000, scope: "build" }));
   app.use("/v1/*", rateLimit({ limit: env.API_RATE_LIMIT, windowMs: env.API_RATE_WINDOW_MS, scope: "v1" }));
   app.use("/api/*", bodyLimit(2_000_000));
 
@@ -66,6 +70,7 @@ export function createApp() {
   app.route("/api", auth);
   app.route("/api", routes);
   app.route("/api", dataSpace);
+  app.route("/api", build);
   app.route("/api", panel);
   // Mounted after `routes` so the shared body limit applies, and before the
   // OpenAI router whose prefix is `/`.

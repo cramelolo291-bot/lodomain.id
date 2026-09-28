@@ -1,4 +1,5 @@
-import { AppShell } from "@/components/AppShell";
+import { AppShell, Logo } from "@/components/AppShell";
+import { useAuth } from "@/hooks/use-auth";
 import { api, AGENTS, MODELS, getAgent, getModel } from "@/lib/api";
 import { GUARDRAIL_LABELS } from "@/lib/guardrails";
 import {
@@ -32,6 +33,7 @@ import {
   Rocket,
   Search,
   ShieldAlert,
+  Sparkles,
   Square,
   Terminal as TerminalIcon,
   Trash2,
@@ -56,6 +58,30 @@ const SUGGESTIONS = [
   "Bikin skema Postgres untuk gateway",
   "Tambah magic-link authentication",
 ];
+
+/**
+ * ChatGPT opens on a greeting rather than a logo wall, and reads the hour so it
+ * is never wrong in a screenshot. The name comes from the signed-in address —
+ * it is the only thing we have, and guessing beats a blank.
+ */
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 5) return "Masih PROGRaw";
+  if (h < 11) return "Selamat pagi";
+  if (h < 15) return "Selamat siang";
+  if (h < 19) return "Selamat sore";
+  return "Selamat malam";
+}
+
+function firstName(email: string | undefined): string {
+  if (!email) return "there";
+  const local = email.split("@")[0] ?? "";
+  const word = local.split(/[._-]+/).find(Boolean) ?? "";
+  // Capitalise, and stop before a run of digits — `lo123` should greet as `Lo`.
+  const cleaned = word.replace(/\d+/g, "");
+  if (!cleaned) return "there";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
 
 /** freebuff-style generated project name. */
 function projectSlug() {
@@ -267,6 +293,7 @@ function Step({
 export default function Chat() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { session } = useAuth();
 
   const [conversations, setConversations] = useState<
     Awaited<ReturnType<typeof api.listConversations>>
@@ -290,6 +317,10 @@ export default function Chat() {
   const [agentMenu, setAgentMenu] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deployed, setDeployed] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [buildMs, setBuildMs] = useState<number | null>(null);
+  /** Set once a build produced real output; the preview then serves it. */
+  const [builtUrl, setBuiltUrl] = useState<string | null>(null);
 
   /** Right-hand pane. Everything lives together; nothing is tabbed away. */
   const [paneOpen, setPaneOpen] = useState(false);
@@ -614,6 +645,46 @@ export default function Chat() {
     ]);
   }, []);
 
+  /**
+   * Runs the real toolchain over the project's files and shows the output in
+   * the terminal, which is where build logs belong. A successful build also
+   * switches the preview over to the real output directory instead of the
+   * string-concatenated fallback.
+   */
+  const runBuild = useCallback(async () => {
+    if (!project) return;
+    setBuilding(true);
+    setPane("term");
+    setPaneOpen(true);
+    setTermLines((prev) => [...prev, "$ lolo build"]);
+
+    try {
+      const res = await api.runBuild(project.name, "build");
+      setBuildMs(res.ms);
+
+      setTermLines((prev) => [
+        ...prev,
+        ...(res.output ? res.output.split("\n") : ["(no output)"]),
+        ...(res.skipped
+          ? []
+          : res.ok
+            ? [`✓ build succeeded in ${(res.ms / 1000).toFixed(1)}s`]
+            : [`✗ build failed${res.code === null ? " (timed out)" : ` (exit ${res.code})`}`]),
+      ]);
+
+      const url = res.hasOutput ? api.previewUrl(project.name) : "";
+      setBuiltUrl(url || null);
+      if (url) setPane("preview");
+    } catch (e) {
+      setTermLines((prev) => [
+        ...prev,
+        `✗ ${e instanceof Error ? e.message : String(e)}`,
+      ]);
+    } finally {
+      setBuilding(false);
+    }
+  }, [project]);
+
   const pickAgent = (key: string) => {
     setAgent(key);
     setAgentMenu(false);
@@ -769,23 +840,24 @@ export default function Chat() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setDeployed(true);
-                  setPane("preview");
-                  setPaneOpen(true);
-                }}
-                disabled={paths.length === 0}
+                onClick={() => void runBuild()}
+                disabled={paths.length === 0 || building}
                 className="btn-primary px-3 py-1.5 text-[12px]"
               >
-                {deployed ? (
+                {building ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Building
+                  </>
+                ) : buildMs !== null ? (
                   <>
                     <Check className="size-3.5" />
-                    Live
+                    {(buildMs / 1000).toFixed(1)}s
                   </>
                 ) : (
                   <>
                     <Rocket className="size-3.5" />
-                    Deploy
+                    Build
                   </>
                 )}
               </button>
@@ -799,17 +871,21 @@ export default function Chat() {
           >
             <div className="mx-auto w-full max-w-[780px]">
               {messages.length === 0 && (
-                <div className="flex min-h-full flex-col items-center justify-center py-8 text-center">
-                  <h1 className="display text-[34px] leading-[1.1] text-ink-1 sm:text-[44px]">
-                    Bilang aja mau
-                    <br />
-                    bikin apa.
+                <div className="flex min-h-full flex-col items-center justify-center py-10 text-center">
+                  <Logo className="size-[44px]" />
+
+                  <h1 className="display mt-7 text-[30px] leading-[1.15] text-ink-1 sm:text-[38px]">
+                    {greeting()}, {firstName(session?.email)}.
                   </h1>
-                  <p className="mt-5 max-w-[42ch] text-[15px] leading-[1.75] text-ink-2">
-                    Agent nulis filenya, nge-typecheck, lalu nampilin hasilnya
-                    di sebelah kanan. Nggak ada tab buat pindah-pindah.
+                  <p className="mt-4 max-w-[46ch] text-[15px] leading-[1.75] text-ink-3">
+                    Tanya apa aja. Kalau lo minta bikin sesuatu, agent nulis
+                    filenya, nge-build, lalu nampilin hasilnya di panel
+                    sebelah kanan.
                   </p>
-                  <div className="mt-8 flex flex-wrap justify-center gap-2">
+
+                  {/* Two-by-two, the way a blank conversation offers a starting
+                      move without burying the composer under a wall of chips. */}
+                  <div className="mt-9 grid w-full max-w-[640px] gap-2.5 sm:grid-cols-2">
                     {SUGGESTIONS.map((s) => (
                       <button
                         key={s}
@@ -818,9 +894,12 @@ export default function Chat() {
                           setDraft(s);
                           inputRef.current?.focus();
                         }}
-                        className="rounded-full border border-border px-3.5 py-2 text-left text-[12.5px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
+                        className="lift sheen flex items-start gap-2.5 rounded-[12px] p-3.5 text-left"
                       >
-                        {s}
+                        <Sparkles className="mt-0.5 size-3.5 shrink-0 text-ink-4" />
+                        <span className="text-[13px] leading-snug text-ink-2">
+                          {s}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -1331,11 +1410,12 @@ export default function Chat() {
               </div>
             ) : pane === "preview" ? (
               <div className="relative min-h-0 flex-1 bg-[var(--bg-2)]">
-                {preview ? (
+                {builtUrl || preview ? (
                   <iframe
                     title="Preview"
-                    srcDoc={preview}
-                    sandbox="allow-scripts"
+                    src={builtUrl ?? undefined}
+                    srcDoc={builtUrl ? undefined : (preview ?? undefined)}
+                    sandbox="allow-scripts allow-forms allow-popups"
                     className="h-full w-full border-0"
                   />
                 ) : (
@@ -1352,7 +1432,7 @@ export default function Chat() {
                 )}
                 <span className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/80 px-2.5 py-1 font-mono text-[10px] text-ink-3 backdrop-blur">
                   <span className="size-1.5 rounded-full bg-[#4aa06e]" />
-                  live · :3000
+                  {builtUrl ? "built output" : "live preview"}
                 </span>
               </div>
             ) : (

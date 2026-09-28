@@ -617,6 +617,46 @@ function mockApi() {
       return runCommand(cmd, state.project);
     },
 
+    /**
+     * The mock pretends to build. It waits long enough for the spinner to be
+     * honest about the fact that a real build is slow, then reports the same
+     * shape the server does — including the "nothing to build" case, because
+     * that is what most mock projects will hit.
+     */
+    async runBuild(_project: string, target: BuildTarget): Promise<BuildResult> {
+      const started = Date.now();
+      await new Promise((r) => setTimeout(r, 900 + Math.random() * 600));
+
+      const has = Object.keys(state.project.files);
+      const pkg = has.find((p) => p === "package.json");
+      if (!pkg) {
+        return {
+          ok: true,
+          target,
+          code: 0,
+          output: "No package.json — nothing to install or build.",
+          ms: Date.now() - started,
+          timedOut: false,
+          command: "",
+          skipped: "No package.json — nothing to install or build.",
+          hasOutput: false,
+        };
+      }
+
+      return {
+        ok: true,
+        target,
+        code: 0,
+        output: `$ npm install --no-audit --no-fund\nadded 148 packages in 3s\n\n$ npm run build\nvite v7.3.6 building for production...\n✓ ${has.length} modules transformed.\ndist/index.html   0.95 kB\nbuilt in 1.2s`,
+        ms: Date.now() - started,
+        timedOut: false,
+        command: "npm install --no-audit --no-fund && npm run build",
+        hasOutput: true,
+      };
+    },
+
+    previewUrl: (_project: string) => "",
+
     async resetProject(): Promise<void> {
       state.project = seed().project;
       commit();
@@ -1042,6 +1082,21 @@ function mockApi() {
 
 export type Api = ReturnType<typeof mockApi>;
 
+/** What a build can do, and what it reports back. Mirrors server/build/runner.ts. */
+export type BuildTarget = "install" | "build" | "typecheck" | "test";
+
+export type BuildResult = {
+  ok: boolean;
+  target: BuildTarget;
+  code: number | null;
+  output: string;
+  ms: number;
+  timedOut: boolean;
+  command: string;
+  skipped?: string;
+  hasOutput?: boolean;
+};
+
 // ── Real backend (used once the Hono server exists) ───────────────────────
 
 // `import.meta.env` is a Vite construct. The optional chain keeps this module
@@ -1080,6 +1135,9 @@ function httpApi() {
     listMessages: (id: string) => get<Message[]>(`/api/conversations/${id}/messages`),
     getProject: () => get<Project>("/api/project"),
     runCommand: (cmd: string) => send<CommandResult>("/api/terminal", "POST", { cmd }),
+    runBuild: (project: string, target: BuildTarget) =>
+      send<BuildResult>(`/api/projects/${project}/build`, "POST", { target }),
+    previewUrl: (project: string) => `${BASE}/api/projects/${project}/preview`,
     resetProject: () => send<void>("/api/project", "DELETE"),
     dataTables: (project: string) => get<Table[]>(`/api/projects/${project}/tables`),
     dataAddRow: (project: string, table: string, values: Row) =>

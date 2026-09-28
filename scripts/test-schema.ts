@@ -140,7 +140,10 @@ console.log("\n— the routes the frontend calls —");
 const apiSource = await readFile("src/lib/api.ts", "utf8");
 const serverSource = (
   await Promise.all(
-    ["auth", "conversations", "data-space", "panel"].map((f) =>
+    // Every router the app mounts. Missing one here makes the parity check
+    // below quietly blind to that whole surface, so keep it in step with the
+    // `app.route` calls in `server/app.ts`.
+    ["auth", "conversations", "data-space", "panel", "build", "turn-stream"].map((f) =>
       readFile(`server/routes/${f}.ts`, "utf8"),
     ),
   )
