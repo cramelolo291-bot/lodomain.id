@@ -14,6 +14,7 @@ import { pruneSessions } from "./auth/session";
 import { pruneMagicLinks } from "./auth/magic-link";
 import { clearExpiredCooldowns, resetOrphans } from "./ollama/pool";
 import { isUp } from "./ollama/client";
+import { stopAllDev } from "./build/dev";
 import { log } from "./http/observability";
 
 /** How long a draining request gets before the process exits anyway. */
@@ -114,6 +115,13 @@ async function shutdown(signal: string, code = 0): Promise<void> {
   }
 
   await drain();
+
+  // Dev servers are long-lived children. Leaving one running would hold a port
+  // and a workspace directory open after the server is gone, and the next boot
+  // would find a port already taken by a process it does not know about.
+  const stopped = await stopAllDev();
+  if (stopped) log.info("stopped dev servers", { count: stopped });
+
   await close();
   process.exit(code);
 }

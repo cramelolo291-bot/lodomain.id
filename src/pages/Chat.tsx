@@ -318,6 +318,9 @@ export default function Chat() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deployed, setDeployed] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [devState, setDevState] = useState<"off" | "starting" | "on" | "failed">("off");
+  /** When set, the preview serves the running dev server instead of dist/. */
+  const [liveUrl, setLiveUrl] = useState<string | null>(null);
   const [buildMs, setBuildMs] = useState<number | null>(null);
   /** Set once a build produced real output; the preview then serves it. */
   const [builtUrl, setBuiltUrl] = useState<string | null>(null);
@@ -710,6 +713,51 @@ export default function Chat() {
     }
   }, [project]);
 
+  /**
+   * Starts, or stops, a real dev server for the project. Its file watcher then
+   * picks up everything the agent writes, so the preview updates without a
+   * rebuild — the reason this exists rather than "build and look at dist".
+   */
+  const toggleDev = useCallback(async () => {
+    if (!project) return;
+
+    if (liveUrl) {
+      await api.stopDev(project.name).catch(() => {});
+      setLiveUrl(null);
+      setDevState("off");
+      setTermLines((prev) => [...prev, "$ dev server stopped"]);
+      return;
+    }
+
+    setDevState("starting");
+    setPane("term");
+    setPaneOpen(true);
+    setTermLines((prev) => [...prev, "$ lolo dev"]);
+
+    try {
+      const res = await api.startDev(project.name);
+      if (!res.ok) {
+        setDevState("failed");
+        setTermLines((prev) => [...prev, res.reason]);
+        return;
+      }
+      setDevState("on");
+      setLiveUrl(api.devUrl(project.name));
+      setPane("preview");
+      setTermLines((prev) => [
+        ...prev,
+        ...(res.reused ? [] : res.log),
+        `● dev server on :${res.port} — live reload active`,
+      ]);
+    } catch (e) {
+      setDevState("failed");
+      setTermLines((prev) => [
+        ...prev,
+        `✗ ${e instanceof Error ? e.message : String(e)}`,
+      ]);
+    }
+  }, [project, liveUrl]);
+
   const pickAgent = (key: string) => {
     setAgent(key);
     setAgentMenu(false);
@@ -862,6 +910,32 @@ export default function Chat() {
                 aria-label="Buka preview"
               >
                 <ExternalLink className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void toggleDev()}
+                disabled={devState === "starting"}
+                className={cn(
+                  "px-3 py-1.5 text-[12px]",
+                  devState === "on" ? "btn-solid" : "btn-ghost",
+                )}
+                aria-pressed={devState === "on"}
+              >
+                {devState === "starting" ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <span
+                    className={cn(
+                      "size-1.5 rounded-full",
+                      devState === "on"
+                        ? "pulse-dot"
+                        : devState === "failed"
+                          ? "bg-[#c85a50]"
+                          : "bg-ink-4",
+                    )}
+                  />
+                )}
+                {devState === "on" ? "Live" : devState === "failed" ? "Retry" : "Start live"}
               </button>
               <button
                 type="button"
@@ -1435,12 +1509,13 @@ export default function Chat() {
               </div>
             ) : pane === "preview" ? (
               <div className="relative min-h-0 flex-1 bg-[var(--bg-2)]">
-                {builtUrl || preview ? (
+                {liveUrl || builtUrl || preview ? (
                   <iframe
                     title="Preview"
-                    src={builtUrl ?? undefined}
-                    srcDoc={builtUrl ? undefined : (preview ?? undefined)}
-                    sandbox="allow-scripts allow-forms allow-popups"
+                    key={liveUrl ?? builtUrl ?? "fallback"}
+                    src={liveUrl ?? builtUrl ?? undefined}
+                    srcDoc={liveUrl || builtUrl ? undefined : (preview ?? undefined)}
+                    sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
                     className="h-full w-full border-0"
                   />
                 ) : (
@@ -1457,7 +1532,7 @@ export default function Chat() {
                 )}
                 <span className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/80 px-2.5 py-1 font-mono text-[10px] text-ink-3 backdrop-blur">
                   <span className="size-1.5 rounded-full bg-[#4aa06e]" />
-                  {builtUrl ? "built output" : "live preview"}
+                  {liveUrl ? "live · watching" : builtUrl ? "built output" : "static preview"}
                 </span>
               </div>
             ) : (

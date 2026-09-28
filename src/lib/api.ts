@@ -672,6 +672,20 @@ function mockApi() {
 
     previewUrl: (_project: string) => "",
 
+    /**
+     * The mock cannot really run a dev server, so this reports the one thing
+     * the UI acts on — that it is not available — rather than pretending.
+     */
+    async startDev(_project: string): Promise<DevResult> {
+      return {
+        ok: false,
+        reason:
+          'The preview is mocked. Add a "dev" script to package.json and run with VITE_API_MODE=http to get a live server.',
+      };
+    },
+    stopDev: async (_project: string) => ({ ok: true }),
+    devUrl: (_project: string) => "",
+
     async resetProject(): Promise<void> {
       state.project = seed().project;
       commit();
@@ -1112,6 +1126,11 @@ export type BuildResult = {
   hasOutput?: boolean;
 };
 
+/** What starting a dev server reports. Mirrors server/build/dev.ts. */
+export type DevResult =
+  | { ok: true; port: number; reused: boolean; pid: number | null; log: string[]; url: string }
+  | { ok: false; reason: string };
+
 // ── Real backend (used once the Hono server exists) ───────────────────────
 
 // `import.meta.env` is a Vite construct. The optional chain keeps this module
@@ -1153,6 +1172,10 @@ function httpApi() {
     runBuild: (project: string, target: BuildTarget) =>
       send<BuildResult>(`/api/projects/${project}/build`, "POST", { target }),
     previewUrl: (project: string) => `${BASE}/api/projects/${project}/preview`,
+    startDev: (project: string) =>
+      send<DevResult>(`/api/projects/${project}/dev`, "POST", {}),
+    stopDev: (project: string) => send<{ ok: boolean }>(`/api/projects/${project}/dev/stop`, "POST"),
+    devUrl: (project: string) => `${BASE}/api/projects/${project}/live/`,
     resetProject: () => send<void>("/api/project", "DELETE"),
     dataTables: (project: string) => get<Table[]>(`/api/projects/${project}/tables`),
     dataAddRow: (project: string, table: string, values: Row) =>

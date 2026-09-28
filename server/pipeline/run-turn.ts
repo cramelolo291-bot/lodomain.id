@@ -24,7 +24,7 @@ import {
   type TraceStep,
 } from "../db/schema";
 import { screen } from "../../src/lib/guardrails";
-import { getAgent, getModel, type Effort } from "../../src/lib/catalog";
+import { getAgent, getModel, type Effort, type ModelDef } from "../../src/lib/catalog";
 import { mergeTables, tablesForPrompt } from "../../src/lib/data";
 import { env } from "../env";
 import {
@@ -43,6 +43,7 @@ import {
 import { budgetHistory, systemPrompt } from "./prompts";
 import { parseFileWrites, type FileWrite } from "./file-blocks";
 import { runBuild } from "../build/runner";
+import { devServer, syncDev } from "../build/dev";
 import { provisionTables } from "./data-space";
 
 export type TurnResult =
@@ -79,6 +80,195 @@ export type TurnEvent =
 export type Emit = (event: TurnEvent) => void;
 
 const noop: Emit = () => {};
+
+/**
+ * How many times the agent may look at its own build output and try again
+ * inside one turn.
+ *
+ * Two is a deliberate ceiling. Each cycle is a full model call plus an install
+ * plus a build, so a turn could go from two seconds to five minutes. And a
+ * model that cannot fix it in two goes is not going to fix it in twenty — it is
+ * going to loop. The user always gets an answer; it just may be "here is what
+ * the build says, and here is what I tried".
+ */
+const MAX_REPAIRS = 2;
+
+/** How much of a build log is worth putting back in front of the model. */
+const MAX_REPAIR_OUTPUT = 4_000;
+
+/** Tells the model what happened and what to do about it. */
+function repairPrompt(output: string, cycle: number, max: number): string {
+  const tail = output.slice(-MAX_REPAIR_OUTPUT);
+  return `The build failed. Here is its output:
+
+\`\`\`
+${tail}
+\`\`\`
+
+Fix it. Rewrite only the files that need changing with \`lolo:write\`, and add a
+\`lolo:build\` block so it is checked again. This is attempt ${cycle} of ${max} —
+if you cannot fix it, say what is wrong instead of trying a blind edit.`;
+}
+
+/** Everything the repair loop needs, so its signature stays readable. */
+type RepairContext = {
+  projectId: string;
+  userId: string;
+  localModel: string;
+  modelDef: ModelDef;
+  wire: ChatMessage[];
+  emit: Emit;
+  push: (
+    stage: string,
+    detail: string,
+    ms: number,
+    status?: "ok" | "warn" | "error",
+  ) => void;
+  stream: boolean;
+};
+
+/**
+ * Hands the model its own build output and lets it try again.
+ *
+ * This is what turns "writes files" into "does the work": a build that fails is
+ * not a failure of the turn, it is the next thing the agent has to look at. The
+ * loop stops as soon as a build passes, the model declines to change anything,
+ * or the budget runs out.
+ *
+ * The output guardrail runs here too. Repair text is model output like any
+ * other, and skipping it would be a hole exactly where an attacker would look.
+ */
+async function repairAfterFailedBuild(
+  ctx: RepairContext,
+  lastContent: string,
+  buildOutput: string,
+): Promise<void> {
+  const conversation: ChatMessage[] = [
+    ...ctx.wire,
+    { role: "assistant", content: lastContent },
+    { role: "user", content: repairPrompt(buildOutput, 1, MAX_REPAIRS) },
+  ];
+
+  for (let cycle = 1; cycle <= MAX_REPAIRS; cycle += 1) {
+    const account = await poolClaim(db, ctx.localModel);
+    if (!account) {
+      ctx.push("repair", "no account free for a repair", 0, "warn");
+      return;
+    }
+
+    const started = Date.now();
+    ctx.push("repair", `attempt ${cycle}/${MAX_REPAIRS}`, started, "warn");
+
+    let content: string;
+    let tokensIn: number;
+    let tokensOut: number;
+    try {
+      const options = {
+        temperature: 0.4, // Lower than a first answer: this is a correction.
+        numCtx: Math.min(ctx.modelDef.contextK * 1024, 32_768),
+      };
+
+      if (ctx.stream) {
+        const chunks: string[] = [];
+        await collect(
+          chatStream(ctx.localModel, conversation, options),
+          (e) => {
+            if (e.type === "delta") chunks.push(e.text);
+          },
+        );
+        content = chunks.join("");
+        tokensIn = 0;
+        tokensOut = 0;
+      } else {
+        const result = await chat(ctx.localModel, conversation, options);
+        content = result.content;
+        tokensIn = result.tokensIn;
+        tokensOut = result.tokensOut;
+      }
+    } catch (e) {
+      ctx.push(
+        "repair",
+        `upstream failed: ${e instanceof Error ? e.message : String(e)}`,
+        Date.now() - started,
+        "error",
+      );
+      return;
+    }
+
+    const leak = screen(content, "output");
+    if (leak) {
+      ctx.push("repair", `blocked · ${leak.category}`, Date.now() - started, "error");
+      return;
+    }
+
+    if (tokensIn || tokensOut) {
+      await recordUsage(db, {
+        userId: ctx.userId,
+        accountId: account.id,
+        model: ctx.localModel,
+        agent: "lolo",
+        effort: null,
+        tokensIn,
+        tokensOut,
+        latencyMs: Date.now() - started,
+        ok: true,
+      });
+    }
+
+    const { writes } = parseFileWrites(content);
+    if (writes.length === 0) {
+      // It declined to change anything. That is a legitimate ending — a model
+      // explaining why it cannot fix something beats a model thrashing.
+      ctx.push("repair", "no further changes proposed", Date.now() - started, "warn");
+      return;
+    }
+
+    const applied = await applyWrites(ctx.projectId, writes);
+    for (const w of applied) ctx.emit({ type: "file", path: w.path, op: "modified" });
+
+    const files = await db
+      .select({ path: projectFiles.path, content: projectFiles.content })
+      .from(projectFiles)
+      .where(eq(projectFiles.projectId, ctx.projectId));
+
+    const build = await runBuild(
+      ctx.projectId,
+      Object.fromEntries(files.map((f) => [f.path, f.content])),
+      "build",
+      { onOutput: (line) => ctx.emit({ type: "build", line }) },
+    );
+
+    ctx.emit({
+      type: "buildDone",
+      ok: build.ok,
+      code: build.code,
+      ms: build.ms,
+      ...(build.skipped ? { skipped: build.skipped } : {}),
+    });
+
+    if (build.ok) {
+      ctx.push("repair", `build passed after ${cycle} attempt(s)`, Date.now() - started);
+      return;
+    }
+    if (build.skipped) {
+      ctx.push("repair", build.skipped, Date.now() - started, "warn");
+      return;
+    }
+
+    conversation.push(
+      { role: "assistant", content },
+      { role: "user", content: repairPrompt(build.output, cycle + 1, MAX_REPAIRS) },
+    );
+    ctx.push(
+      "repair",
+      `still failing (${build.code ?? "timeout"})`,
+      Date.now() - started,
+      "error",
+    );
+  }
+
+  ctx.push("repair", `gave up after ${MAX_REPAIRS} attempts`, 0, "warn");
+}
 
 async function recentTurns(conversationId: string): Promise<ChatMessage[]> {
   const rows = await db
@@ -345,17 +535,36 @@ export async function streamTurn(args: TurnArgs, emit: Emit = noop): Promise<Tur
       // small model will emit the directive repeatedly, and each run installs
       // dependencies. The cap is here rather than in the model prompt because a
       // prompt is advice and this is a rule.
+      //
+      // The project files are read once and used for both the live sync and the
+      // build — two queries of the same rows in one turn is the kind of thing
+      // that quietly disagrees with itself later.
+      const files = await db
+        .select({ path: projectFiles.path, content: projectFiles.content })
+        .from(projectFiles)
+        .where(eq(projectFiles.projectId, args.projectId));
+      const fileMap = Object.fromEntries(files.map((f) => [f.path, f.content]));
+
+      // A running dev server keeps its own copy on disk. Push the writes into
+      // it so the watcher fires and the preview updates as the agent works,
+      // without restarting the process and losing its state.
+      if (applied.length > 0 && devServer(args.projectId)) {
+        const tSync = Date.now();
+        const synced = await syncDev(args.projectId, fileMap);
+        push(
+          "live",
+          synced.changed ? `synced ${synced.changed} file(s)` : "already in sync",
+          Date.now() - tSync,
+        );
+      }
+
       if (builds.length > 0) {
         const tBuild = Date.now();
         const target = builds[0]!;
-        const files = await db
-          .select({ path: projectFiles.path, content: projectFiles.content })
-          .from(projectFiles)
-          .where(eq(projectFiles.projectId, args.projectId));
 
         const build = await runBuild(
           args.projectId,
-          Object.fromEntries(files.map((f) => [f.path, f.content])),
+          fileMap,
           target,
           { onOutput: (line) => emit({ type: "build", line }) },
         );
@@ -384,6 +593,25 @@ export async function streamTurn(args: TurnArgs, emit: Emit = noop): Promise<Tur
               : `${target} failed (${build.code ?? "timeout"})`,
           Date.now() - tBuild,
         );
+
+        // A failed build is not the end of the turn — it is the next thing the
+        // agent has to look at. Hand it the output and let it try to fix it.
+        if (!build.ok && !build.skipped) {
+          await repairAfterFailedBuild(
+            {
+              projectId: args.projectId,
+              userId: args.userId,
+              localModel,
+              modelDef,
+              wire,
+              emit,
+              push,
+              stream: Boolean(args.stream),
+            },
+            result.content,
+            build.output,
+          );
+        }
       }
 
       const body = prose || result.content || "(empty response)";

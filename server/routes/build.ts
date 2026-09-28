@@ -21,6 +21,7 @@ import {
   runBuild,
   safePreviewPath,
 } from "../build/runner";
+import { devServer, proxyToDev, startDev, stopDev, syncDev } from "../build/dev";
 import { params, parseValue } from "../http/validate";
 import { z } from "zod";
 
@@ -90,6 +91,123 @@ build.post("/projects/:project/build", async (c) => {
     project: { id: project.id, name: project.name },
     hasOutput: outputDirFor(project.id) !== null,
   });
+});
+
+// ── Live dev server ────────────────────────────────────────────────────────
+
+const startBody = z.object({
+  /** 0 lets the dev server choose. */
+  port: z.number().int().min(0).max(65_535).optional(),
+  /** Restart even if one is already running. */
+  restart: z.boolean().optional(),
+});
+
+build.post("/projects/:project/dev", async (c) => {
+  const { userId } = c.get("session");
+  const { project: ref } = params(c, projectParams);
+  const project = await resolveProject(ref, userId);
+  if (!project) return c.json({ error: { message: "Project not found" } }, 404);
+
+  let raw: unknown = {};
+  try {
+    raw = await c.req.json();
+  } catch {
+    raw = {};
+  }
+  const input = parseValue(startBody, raw);
+
+  const files = await db
+    .select({ path: projectFiles.path, content: projectFiles.content })
+    .from(projectFiles)
+    .where(eq(projectFiles.projectId, project.id));
+
+  const started = await startDev(
+    project.id,
+    Object.fromEntries(files.map((f) => [f.path, f.content])),
+    input.port ? { port: input.port } : {},
+  );
+
+  if (!started.ok) {
+    // Not a server fault: the project simply has nothing to run. 200 with a
+    // reason is more useful to the client than a 400 it cannot act on.
+    return c.json({ ok: false, reason: started.reason });
+  }
+
+  const state = devServer(project.id);
+  return c.json({
+    ok: true,
+    port: started.port,
+    reused: started.reused,
+    pid: state?.pid ?? null,
+    log: state?.log ?? [],
+    url: `/api/projects/${project.id}/live/`,
+  });
+});
+
+build.post("/projects/:project/dev/sync", async (c) => {
+  const { userId } = c.get("session");
+  const { project: ref } = params(c, projectParams);
+  const project = await resolveProject(ref, userId);
+  if (!project) return c.json({ error: { message: "Project not found" } }, 404);
+
+  const files = await db
+    .select({ path: projectFiles.path, content: projectFiles.content })
+    .from(projectFiles)
+    .where(eq(projectFiles.projectId, project.id));
+
+  const result = await syncDev(
+    project.id,
+    Object.fromEntries(files.map((f) => [f.path, f.content])),
+  );
+  return c.json({ ...result });
+});
+
+build.post("/projects/:project/dev/stop", async (c) => {
+  const { userId } = c.get("session");
+  const { project: ref } = params(c, projectParams);
+  const project = await resolveProject(ref, userId);
+  if (!project) return c.json({ error: { message: "Project not found" } }, 404);
+
+  await stopDev(project.id);
+  return c.json({ ok: true });
+});
+
+/**
+ * Everything under the live prefix is forwarded to the running dev server.
+ *
+ * The upstream address is never taken from the request — it comes from the
+ * process this server started — so the path is the only thing a caller
+ * controls. A WebSocket upgrade will not survive this, which is a real limit:
+ * HMR clients that need one get the static output instead.
+ */
+build.get("/projects/:project/live/*", async (c) => {
+  const { userId } = c.get("session");
+  const { project: ref } = params(c, projectParams);
+  const project = await resolveProject(ref, userId);
+  if (!project) return c.json({ error: { message: "Project not found" } }, 404);
+
+  const { search } = new URL(c.req.url);
+  const subPath = c.req.path.slice(c.req.path.indexOf("/live/") + "/live".length);
+
+  const proxied = await proxyToDev(project.id, subPath, { search });
+  if (!proxied.ok) {
+    return c.json({ error: { message: proxied.reason } }, 503);
+  }
+
+  const upstream = proxied.response;
+  const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
+
+  c.header("cache-control", "no-store");
+  c.header("content-type", contentType);
+  // Built output is untrusted markup served from the app's own origin. The
+  // sandbox flag is what stops it reaching the API with the session cookie.
+  c.header(
+    "content-security-policy",
+    "sandbox allow-scripts allow-forms allow-popups allow-same-origin",
+  );
+  c.header("x-content-type-options", "nosniff");
+
+  return c.body(upstream.body as unknown as ArrayBuffer);
 });
 
 // ── Preview ───────────────────────────────────────────────────────────────

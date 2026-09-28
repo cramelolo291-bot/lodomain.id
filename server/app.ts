@@ -45,6 +45,11 @@ export function createApp() {
   // A build installs dependencies and runs a compiler. It is the most expensive
   // thing this server does by a wide margin, so it gets its own tight budget.
   app.use("/api/projects/*/build", rateLimit({ limit: 6, windowMs: 60_000, scope: "build" }));
+  // Starting a dev server spawns a long-lived process and holds a port. Tighter
+  // still, and a separate bucket so a burst of builds cannot spend the budget
+  // for starting one.
+  app.use("/api/projects/*/dev", rateLimit({ limit: 10, windowMs: 60_000, scope: "dev" }));
+  app.use("/api/projects/*/dev/*", rateLimit({ limit: 10, windowMs: 60_000, scope: "dev" }));
   app.use("/v1/*", rateLimit({ limit: env.API_RATE_LIMIT, windowMs: env.API_RATE_WINDOW_MS, scope: "v1" }));
   app.use("/api/*", bodyLimit(2_000_000));
 

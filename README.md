@@ -168,6 +168,31 @@ You can also build by hand: the **Build** button, or
 At most one build runs per turn, and one at a time server-wide. Builds are rate
 limited to 6 a minute, because each one installs dependencies.
 
+### It fixes its own mistakes
+
+A failed build is not the end of the turn. The build output goes back to the
+model as a follow-up message, and it gets up to two more attempts to fix it —
+lower temperature, only the files that need changing, and the same output
+guardrail applied to the repair text as to any other model output.
+
+The cap is two on purpose. Each cycle is a model call plus an install plus a
+build, so an uncapped loop would turn a two-second turn into a five-minute one,
+and a model that cannot fix something in two goes is not going to fix it in
+twenty. If it declines to change anything, that is accepted as the answer.
+
+### Live preview
+
+**Start live** runs the project's `dev` script as a long-lived process and
+proxies to it, so the preview updates as the agent edits — no rebuild. Every
+write the agent makes is pushed into the running workspace, which is what makes
+the file watcher fire; a file the agent deleted is removed there too, or the
+error never goes away.
+
+The dev server is bound to loopback, `HOST=127.0.0.1` is forced, and it is
+stopped on restart and on server shutdown so it cannot outlive the process that
+started it. A WebSocket upgrade does not survive the proxy, which is a real
+limit: an HMR client that needs one will fall back to the static output.
+
 ### What this is not
 
 **The build runner is not a security boundary.** It runs as the server's user,
