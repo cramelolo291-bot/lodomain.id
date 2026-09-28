@@ -9,7 +9,7 @@
 // The gateway is OpenAI-shaped on purpose: point LOLO_GATEWAY_URL at a local
 // server, a self-hosted proxy, or a hosted API and the same code works.
 
-import { action, type Id } from "./_generated/server";
+import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
@@ -176,7 +176,7 @@ export const runTurn = action({
       process.env.LOLO_GATEWAY_URL ?? "https://api.groq.com/openai/v1";
     const key = process.env.LOLO_GATEWAY_KEY ?? "";
 
-    const excluded: Id<"gatewayAccounts">[] = [];
+    const excluded: string[] = [];
     let accountLabel = "offline";
     let lastError = "";
     let reply: UpstreamReply | null = null;
@@ -250,7 +250,7 @@ export const runTurn = action({
           latencyMs: Date.now() - started,
           ok: false,
         });
-        excluded.push(claimed);
+        excluded.push(String(claimed));
         reply = null;
       }
     }

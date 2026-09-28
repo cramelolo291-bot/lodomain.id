@@ -3,12 +3,8 @@
 // mutated by a client.
 
 import { v } from "convex/values";
-import {
-  internalMutation,
-  internalQuery,
-  type Doc,
-  type Id,
-} from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
+import { GUARDRAILS } from "./schema";
 import { AGENTS } from "../lib/catalog";
 
 const COOLDOWN_MS = 30_000;
@@ -121,11 +117,11 @@ export const ensureSeeded = internalMutation({
  * slot, and hold that slot for the duration of the upstream call.
  */
 export const claimAccount = internalMutation({
-  args: { exclude: v.optional(v.array(v.id("gatewayAccounts"))) },
+  args: { exclude: v.optional(v.array(v.string())) },
   handler: async (ctx, args) => {
     const now = Date.now();
     const accounts = await ctx.db.query("gatewayAccounts").collect();
-    const excluded = new Set((args.exclude ?? []).map(String));
+    const excluded = new Set(args.exclude ?? []);
 
     const candidates = accounts
       .filter(
@@ -293,6 +289,9 @@ export const recordUsage = internalMutation({
   },
 });
 
+const CATEGORIES = Object.values(GUARDRAILS) as string[];
+const SEVERITIES = ["low", "medium", "high", "critical"];
+
 export const recordGuardrailHit = internalMutation({
   args: {
     userId: v.id("users"),
@@ -302,11 +301,20 @@ export const recordGuardrailHit = internalMutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
+    // Callers pass free-form strings; narrow them to what the table accepts
+    // rather than casting, so a new category cannot slip in unchecked.
+    const category = CATEGORIES.includes(args.category)
+      ? args.category
+      : GUARDRAILS.PROMPT_INJECTION;
+    const severity = SEVERITIES.includes(args.severity)
+      ? (args.severity as "low" | "medium" | "high" | "critical")
+      : "medium";
+
     await ctx.db.insert("guardrailHits", {
       userId: args.userId,
       conversationId: args.conversationId,
-      category: args.category as Doc<"guardrailHits">["category"],
-      severity: args.severity as Doc<"guardrailHits">["severity"],
+      category: category as typeof GUARDRAILS[keyof typeof GUARDRAILS],
+      severity,
       reason: args.reason,
       createdAt: Date.now(),
     });
