@@ -29,6 +29,23 @@ import {
   type FileChange,
   type Project,
 } from "./project";
+import {
+  addRow as dataAddRow,
+  applySql,
+  createTable as dataCreateTable,
+  deleteRow as dataDeleteRow,
+  dropTable as dataDropTable,
+  seedData,
+  tablesFor,
+  tablesForPrompt,
+  mergeTables,
+  updateRow as dataUpdateRow,
+  type Column,
+  type DataSpace,
+  type QueryResult,
+  type Row,
+  type Table,
+} from "./data";
 
 // ── Shapes (identical to the future server's JSON) ─────────────────────────
 
@@ -183,6 +200,8 @@ type MockState = {
   findings: Finding[];
   keys: ApiKey[];
   project: Project;
+  /** Per-project data space. Every project gets its own tables. */
+  data: DataSpace;
 };
 
 function seed(): MockState {
@@ -359,6 +378,7 @@ app.get("/healthz", (c) => c.json({ status: "ok" }));
 export default app;`,
       },
     },
+    data: seedData(),
   };
 }
 
@@ -464,9 +484,7 @@ function renderReply(
       "",
       "Isi project sekarang:",
       "",
-      ...Object.keys(result.files)
-        .slice(0, 8)
-        .map((p) => `- \`${p}\``),
+      ...Object.keys(result.files).map((p) => `- \`${p}\``),
       "",
       "Kalau lo mau nambah fitur, sebut tekniknya: rate limit, schema database, magic-link auth, atau model pool.",
     ].join("\n");
@@ -582,6 +600,89 @@ function mockApi() {
     async resetProject(): Promise<void> {
       state.project = seed().project;
       commit();
+    },
+
+    // ── Per-project data space ──────────────────────────────────────────
+    // No caps anywhere: tables, columns, rows, cells. The only ceiling is
+    // what the browser will hold.
+
+    async dataTables(project: string): Promise<Table[]> {
+      return tablesFor(state.data, project).map((t) => ({
+        ...t,
+        columns: t.columns.map((c) => ({ ...c })),
+        rows: t.rows.map((r) => ({ ...r })),
+      }));
+    },
+
+    async dataAddRow(project: string, table: string, values: Row): Promise<Row> {
+      const current = tablesFor(state.data, project);
+      const { tables, row } = dataAddRow(current, table, values);
+      state.data = { ...state.data, [project]: tables };
+      commit();
+      return row;
+    },
+
+    async dataUpdateRow(
+      project: string,
+      table: string,
+      pk: string,
+      key: string,
+      column: string,
+      value: string,
+    ): Promise<void> {
+      state.data = {
+        ...state.data,
+        [project]: dataUpdateRow(
+          tablesFor(state.data, project),
+          table,
+          pk,
+          key,
+          column,
+          value,
+        ),
+      };
+      commit();
+    },
+
+    async dataDeleteRow(
+      project: string,
+      table: string,
+      pk: string,
+      key: string,
+    ): Promise<void> {
+      state.data = {
+        ...state.data,
+        [project]: dataDeleteRow(tablesFor(state.data, project), table, pk, key),
+      };
+      commit();
+    },
+
+    async dataCreateTable(
+      project: string,
+      name: string,
+      columns: Column[],
+    ): Promise<void> {
+      state.data = {
+        ...state.data,
+        [project]: dataCreateTable(tablesFor(state.data, project), name, columns),
+      };
+      commit();
+    },
+
+    async dataDropTable(project: string, name: string): Promise<void> {
+      state.data = {
+        ...state.data,
+        [project]: dataDropTable(tablesFor(state.data, project), name),
+      };
+      commit();
+    },
+
+    async dataQuery(project: string, sql: string): Promise<QueryResult> {
+      const current = tablesFor(state.data, project);
+      const { tables, result } = applySql(current, sql);
+      state.data = { ...state.data, [project]: tables };
+      commit();
+      return result;
     },
 
     async pool(): Promise<{ accounts: PoolAccount[]; summary: PoolSummary }> {
@@ -753,7 +854,12 @@ function mockApi() {
       const conv = state.conversations.find((c) => c.id === args.conversationId);
       if (conv) {
         conv.updatedAt = started;
-        if (conv.title === "New run") conv.title = args.prompt.slice(0, 60);
+        if (conv.title === "New run") {
+          conv.title =
+            args.prompt.length <= 72
+              ? args.prompt
+              : `${args.prompt.slice(0, 72).trimEnd()}…`;
+        }
       }
 
       // 1 — guardrail
@@ -846,6 +952,19 @@ function mockApi() {
       // 4 — do the work: mutate the real project tree
       const result = plan(args.prompt, state.project, getAgent(args.agent));
       state.project = { ...state.project, files: result.files };
+
+      // The data space is part of the project too, not a separate thing.
+      const name = state.project.name;
+      const wanted = tablesForPrompt(args.prompt);
+      if (wanted.length) {
+        const before = tablesFor(state.data, name);
+        const after = mergeTables(before, wanted);
+        if (after.length !== before.length) {
+          state.data = { ...state.data, [name]: after };
+          const added = after.length - before.length;
+          push("work", `provisioned ${added} ${added === 1 ? "table" : "tables"}`, 90, "ok");
+        }
+      }
 
       for (const s of result.steps.slice(2)) {
         push("work", s, Math.round(60 + Math.random() * 180), "ok");
@@ -940,6 +1059,29 @@ function httpApi() {
     getProject: () => get<Project>("/api/project"),
     runCommand: (cmd: string) => send<CommandResult>("/api/terminal", "POST", { cmd }),
     resetProject: () => send<void>("/api/project", "DELETE"),
+    dataTables: (project: string) => get<Table[]>(`/api/projects/${project}/tables`),
+    dataAddRow: (project: string, table: string, values: Row) =>
+      send<Row>(`/api/projects/${project}/tables/${table}/rows`, "POST", values),
+    dataUpdateRow: (
+      project: string,
+      table: string,
+      pk: string,
+      key: string,
+      column: string,
+      value: string,
+    ) =>
+      send<void>(`/api/projects/${project}/tables/${table}/rows/${key}`, "PATCH", {
+        column,
+        value,
+      }),
+    dataDeleteRow: (project: string, table: string, pk: string, key: string) =>
+      send<void>(`/api/projects/${project}/tables/${table}/rows/${key}?pk=${pk}`, "DELETE"),
+    dataCreateTable: (project: string, name: string, columns: Column[]) =>
+      send<void>(`/api/projects/${project}/tables`, "POST", { name, columns }),
+    dataDropTable: (project: string, name: string) =>
+      send<void>(`/api/projects/${project}/tables/${name}`, "DELETE"),
+    dataQuery: (project: string, sql: string) =>
+      send<QueryResult>(`/api/projects/${project}/query`, "POST", { sql }),
     pool: () => get<{ accounts: PoolAccount[]; summary: PoolSummary }>("/api/pool"),
     setAccountStatus: (id: string, status: "healthy" | "disabled") =>
       send<void>(`/api/pool/${id}`, "PATCH", { status }),

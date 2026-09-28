@@ -92,7 +92,10 @@ export function PoolDiagram({
   accounts: Array<{ label: string; health: number; busy: boolean }>;
   className?: string;
 }) {
+  // The fan has four lanes, so at most four cards get drawn. Anything beyond
+  // that is counted rather than silently dropped.
   const shown = accounts.slice(0, 4);
+  const extra = Math.max(0, accounts.length - shown.length);
   const fanY = [30, 58, 86, 114];
 
   return (
@@ -172,6 +175,19 @@ export function PoolDiagram({
           </g>
         );
       })}
+
+      {extra > 0 && (
+        <text
+          x="360"
+          y="119"
+          textAnchor="end"
+          fill="var(--text-4)"
+          fontSize="9"
+          fontFamily="var(--font-mono)"
+        >
+          +{extra} more
+        </text>
+      )}
     </svg>
   );
 }

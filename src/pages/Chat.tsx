@@ -10,6 +10,7 @@ import {
   type Project,
 } from "@/lib/project";
 import { cn } from "@/lib/utils";
+import { DataPanel } from "@/components/DataPanel";
 import {
   ArrowUp,
   Check,
@@ -288,9 +289,9 @@ export default function Chat() {
 
   /** Right-hand pane. Everything lives together; nothing is tabbed away. */
   const [paneOpen, setPaneOpen] = useState(true);
-  const [pane, setPane] = useState<"preview" | "file">("preview");
+  const [pane, setPane] = useState<"preview" | "file" | "data">("preview");
   const [openFile, setOpenFile] = useState<string | null>(null);
-  const [split, setSplit] = useState(50);
+  const [split, setSplit] = useState(46);
   const [termOpen, setTermOpen] = useState(false);
   const [termLines, setTermLines] = useState<string[]>([
     "$ bun run dev",
@@ -362,7 +363,7 @@ export default function Chat() {
       if (!dragging.current || !shellRef.current) return;
       const box = shellRef.current.getBoundingClientRect();
       const pct = ((e.clientX - box.left) / box.width) * 100;
-      setSplit(Math.min(75, Math.max(28, pct)));
+      setSplit(Math.min(72, Math.max(22, pct)));
     };
     const onUp = () => {
       dragging.current = false;
@@ -603,7 +604,7 @@ export default function Chat() {
     <AppShell>
       <div
         ref={shellRef}
-        className="mx-auto flex h-full max-w-[1800px] gap-3 px-3 pt-3 sm:px-5 sm:pt-4"
+        className="flex h-full w-full gap-3 px-3 pt-3 sm:px-5 sm:pt-4 2xl:px-7"
       >
         {/* Runs rail */}
         <aside
@@ -729,7 +730,7 @@ export default function Chat() {
             ref={scrollRef}
             className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-7"
           >
-            <div className="mx-auto w-full max-w-[720px]">
+            <div className="mx-auto w-full max-w-[780px]">
               {messages.length === 0 && (
                 <div className="flex min-h-full flex-col items-center justify-center py-8 text-center">
                   <h1 className="display text-[34px] leading-[1.1] text-ink-1 sm:text-[44px]">
@@ -938,7 +939,7 @@ export default function Chat() {
 
           {/* Composer */}
           <div className="shrink-0 border-t border-border px-4 py-3.5 sm:px-6">
-            <div className="mx-auto w-full max-w-[720px]">
+            <div className="mx-auto w-full max-w-[780px]">
               <div className="relative rounded-[14px] border border-border bg-background/50 p-2.5 transition-colors focus-within:border-ember/50">
                 <textarea
                   ref={inputRef}
@@ -1170,6 +1171,18 @@ export default function Chat() {
                 >
                   Code · {paths.length}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setPane("data")}
+                  className={cn(
+                    "rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+                    pane === "data"
+                      ? "bg-ember-soft text-ember"
+                      : "text-ink-4 hover:text-ink-2",
+                  )}
+                >
+                  Data
+                </button>
               </div>
               {deployed && (
                 <span className="tag tag-quiet ml-2">
@@ -1187,7 +1200,9 @@ export default function Chat() {
               </button>
             </header>
 
-            {pane === "preview" ? (
+            {pane === "data" ? (
+              <DataPanel project={project?.name ?? "lolo/lolo-ai"} />
+            ) : pane === "preview" ? (
               <div className="relative min-h-0 flex-1 bg-[var(--bg-2)]">
                 {preview ? (
                   <iframe
@@ -1258,7 +1273,7 @@ export default function Chat() {
             className="hidden shrink-0 items-center gap-2 self-start rounded-[12px] border border-border bg-surface-1 px-3.5 py-2.5 font-mono text-[11px] text-ink-3 transition-colors hover:text-ink-1 md:flex"
           >
             <PanelRightOpen className="size-3.5" />
-            Preview
+            Workspace
           </button>
         )}
       </div>
