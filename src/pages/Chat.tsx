@@ -131,12 +131,20 @@ function renderBody(text: string) {
   });
 }
 
-/** A file change, rendered inline in the conversation. */
+/**
+ * A file change, rendered inline in the conversation.
+ *
+ * The header row is a button and the "open" affordance is a sibling button —
+ * never a button inside a button, which the browser silently unwraps and
+ * which makes React drop the subtree.
+ */
 function ChangeCard({
   change,
+  onOpen,
   defaultOpen = false,
 }: {
   change: FileChange;
+  onOpen?: (path: string) => void;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -148,39 +156,52 @@ function ChangeCard({
   const Icon = FILE_ICON[langOf(change.path)] ?? FileCode2;
 
   return (
-    <div className="mt-3 overflow-hidden rounded-[10px] border border-border bg-[var(--bg-2)]">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-2"
-      >
-        <ChevronDown
-          className={cn(
-            "size-3.5 shrink-0 text-ink-4 transition-transform",
-            !open && "-rotate-90",
-          )}
-        />
-        <Icon className="size-3.5 shrink-0 text-ink-4" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-2">
-          {change.path}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.06em] uppercase",
-            change.op === "created"
-              ? "bg-[rgba(74,160,110,0.14)] text-[#4aa06e]"
-              : "bg-ember-soft text-ember",
-          )}
+    <div className="overflow-hidden rounded-[10px] border border-border bg-[var(--bg-2)]">
+      <div className="flex items-center gap-1 pr-2">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-2"
         >
-          {change.op}
-        </span>
-        <span className="shrink-0 font-mono text-[10.5px] text-[#4aa06e]">
-          +{added}
-        </span>
-        <span className="shrink-0 font-mono text-[10.5px] text-[#c85a50]">
-          −{removed}
-        </span>
-      </button>
+          <ChevronDown
+            className={cn(
+              "size-3.5 shrink-0 text-ink-4 transition-transform",
+              !open && "-rotate-90",
+            )}
+          />
+          <Icon className="size-3.5 shrink-0 text-ink-4" />
+          <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-2">
+            {change.path}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.06em] uppercase",
+              change.op === "created"
+                ? "bg-[rgba(74,160,110,0.14)] text-[#4aa06e]"
+                : "bg-ember-soft text-ember",
+            )}
+          >
+            {change.op}
+          </span>
+          <span className="shrink-0 font-mono text-[10.5px] text-[#4aa06e]">
+            +{added}
+          </span>
+          <span className="shrink-0 font-mono text-[10.5px] text-[#c85a50]">
+            −{removed}
+          </span>
+        </button>
+
+        {onOpen && (
+          <button
+            type="button"
+            onClick={() => onOpen(change.path)}
+            aria-label={`Buka ${change.path}`}
+            className="shrink-0 rounded p-1.5 text-ink-4 transition-colors hover:bg-surface-2 hover:text-ember"
+          >
+            <ExternalLink className="size-3.5" />
+          </button>
+        )}
+      </div>
 
       {open && (
         <div className="scrollbar-thin max-h-64 overflow-auto border-t border-border">
@@ -284,7 +305,7 @@ export default function Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dragging = useRef(false);
 
   const activeModel = useMemo(() => getModel(model), [model]);
@@ -356,39 +377,50 @@ export default function Chat() {
     };
   }, []);
 
+  /**
+   * Reveals a reply character by character.
+   *
+   * Progress is driven by elapsed time, not by frame count. requestAnimationFrame
+   * stops firing when the tab or its host iframe is throttled, which used to
+   * leave the message frozen at zero characters — looking exactly like a chat
+   * that never replied. With a clock, throttling only makes it skip ahead.
+   */
   const stream = useCallback((messageId: string, text: string) => {
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    setRevealId(messageId);
-    setRevealChars(0);
+    if (timerRef.current !== null) clearInterval(timerRef.current);
 
     const reduced =
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
     if (reduced || text.length < 40) {
-      setRevealChars(text.length);
       setRevealId(null);
+      setRevealChars(text.length);
       return;
     }
 
-    const perFrame = Math.max(1.6, text.length / 150);
-    let shown = 0;
-    const tick = () => {
-      shown += perFrame;
-      if (shown >= text.length) {
+    setRevealId(messageId);
+    // Start with a visible sliver so the message is never blank.
+    setRevealChars(Math.min(8, text.length));
+
+    const startedAt = Date.now();
+    const durationMs = Math.min(7000, Math.max(900, text.length * 14));
+
+    timerRef.current = setInterval(() => {
+      const progress = Math.min(1, (Date.now() - startedAt) / durationMs);
+      setRevealChars(Math.floor(text.length * progress));
+
+      if (progress >= 1) {
+        if (timerRef.current !== null) clearInterval(timerRef.current);
+        timerRef.current = null;
         setRevealChars(text.length);
         setRevealId(null);
-        rafRef.current = null;
-        return;
       }
-      setRevealChars(shown);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
+    }, 32);
   }, []);
 
   useEffect(
     () => () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (timerRef.current !== null) clearInterval(timerRef.current);
     },
     [],
   );
@@ -446,7 +478,27 @@ export default function Chat() {
         setDeployed(false);
 
         const reply = [...fresh].reverse().find((m) => m.role === "assistant");
-        if (reply && !reply.blocked) stream(reply.id, reply.content);
+
+        if (reply && !reply.blocked) {
+          stream(reply.id, reply.content);
+          return;
+        }
+
+        // The turn produced no visible reply. Say so rather than leaving an
+        // empty thread, which reads as a chat that never answered.
+        if (!reply) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `err-${Date.now()}`,
+              conversationId: target,
+              role: "assistant",
+              content:
+                "Turn selesai tapi nggak ada balasan yang masuk. Coba kirim ulang — kalau terulang, cek tab Trace untuk lihat di langkah mana agent berhenti.",
+              createdAt: Date.now(),
+            },
+          ]);
+        }
       }
     },
     [agent, model, stream],
@@ -488,9 +540,9 @@ export default function Chat() {
   }, [activeId, busy, messages, run]);
 
   const stop = useCallback(() => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
+    if (timerRef.current !== null) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
     setRevealId(null);
     setBusy(false);
@@ -713,7 +765,7 @@ export default function Chat() {
                   const isUser = m.role === "user";
                   const streaming = m.id === revealId;
                   const text = streaming
-                    ? m.content.slice(0, Math.floor(revealChars))
+                    ? m.content.slice(0, Math.max(1, Math.floor(revealChars)))
                     : m.content;
                   const isNewest = messages[messages.length - 1]?.id === m.id;
 
@@ -772,14 +824,11 @@ export default function Chat() {
                       {!isUser && !m.blocked && !streaming && isNewest && changes.length > 0 && (
                         <div className="w-full space-y-2">
                           {changes.map((c) => (
-                            <button
+                            <ChangeCard
                               key={c.path}
-                              type="button"
-                              onClick={() => openChangedFile(c.path)}
-                              className="block w-full text-left"
-                            >
-                              <ChangeCard change={c} />
-                            </button>
+                              change={c}
+                              onOpen={openChangedFile}
+                            />
                           ))}
                         </div>
                       )}
