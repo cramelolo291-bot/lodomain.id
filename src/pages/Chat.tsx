@@ -23,11 +23,14 @@ import {
   FileText,
   GitBranch,
   Loader2,
+  MessageSquare,
+  PanelLeft,
   PanelRightClose,
   PanelRightOpen,
   Plus,
   RefreshCw,
   Rocket,
+  Search,
   ShieldAlert,
   Square,
   Terminal as TerminalIcon,
@@ -281,14 +284,15 @@ export default function Chat() {
   const [effort, setEffort] = useState("");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [railOpen, setRailOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(true);
+  const [query, setQuery] = useState("");
   const [modelMenu, setModelMenu] = useState(false);
   const [agentMenu, setAgentMenu] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deployed, setDeployed] = useState(false);
 
   /** Right-hand pane. Everything lives together; nothing is tabbed away. */
-  const [paneOpen, setPaneOpen] = useState(true);
+  const [paneOpen, setPaneOpen] = useState(false);
   const [pane, setPane] = useState<"preview" | "file" | "data" | "term">("preview");
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [split, setSplit] = useState(46);
@@ -310,6 +314,20 @@ export default function Chat() {
   const dragging = useRef(false);
 
   const activeModel = useMemo(() => getModel(model), [model]);
+
+  /** History, filtered by the search box. Newest first, the way a chat log reads. */
+  const history = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const matched = q
+      ? conversations.filter(
+          (c) =>
+            c.title.toLowerCase().includes(q) ||
+            getAgent(c.agent).name.toLowerCase().includes(q),
+        )
+      : conversations;
+    return [...matched].sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [conversations, query]);
+
   const paths = useMemo(
     () => (project ? Object.keys(project.files).sort() : []),
     [project],
@@ -318,6 +336,27 @@ export default function Chat() {
     () => (project ? previewHtml(project) : null),
     [project],
   );
+
+  /**
+   * The workspace opens itself exactly once, the first time the agent writes a
+   * file for this conversation. Before that the app is just a chat, and a panel
+   * with nothing in it is the wrong thing to be looking at. After that it never
+   * opens on its own again — once you close it, you meant it.
+   */
+  const firstFileCount = useRef(0);
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || paths.length === 0) return;
+    // A conversation that already had files when it opened is not a new build,
+    // so it does not get the panel thrown at it.
+    if (firstFileCount.current > 0) {
+      autoOpened.current = true;
+      return;
+    }
+    firstFileCount.current = paths.length;
+    autoOpened.current = true;
+    setPaneOpen(true);
+  }, [paths.length]);
   const totals = useMemo(
     () =>
       changes
@@ -606,48 +645,75 @@ export default function Chat() {
         ref={shellRef}
         className="flex h-full w-full gap-3 px-3 pt-3 sm:px-5 sm:pt-4 2xl:px-7"
       >
-        {/* Runs rail */}
+        {/* History rail. A drawer, not a permanent column: ChatGPT hides it and
+            the chat owns the full width when you are actually talking to the
+            agent. `railOpen` drives it on every breakpoint. */}
         <aside
           className={cn(
-            "scrollbar-thin hidden w-60 shrink-0 flex-col overflow-y-auto lg:flex",
-            railOpen && "flex",
+            "scrollbar-thin absolute inset-y-0 left-0 z-40 flex w-[268px] shrink-0 flex-col overflow-y-auto pb-4 pr-2 transition-transform duration-300 lg:relative lg:z-auto lg:translate-x-0",
+            railOpen
+              ? "translate-x-0 pl-2 pt-1 lg:pl-0 lg:pt-0"
+              : "-translate-x-full pl-2 lg:hidden",
           )}
         >
-          <button type="button" onClick={newRun} className="btn-primary w-full">
+          {/* Scrim: tap to dismiss on narrow screens. */}
+          {railOpen && (
+            <button
+              type="button"
+              aria-label="Tutup riwayat"
+              onClick={() => setRailOpen(false)}
+              className="fixed inset-0 -z-10 cursor-default bg-black/40 backdrop-blur-[2px] lg:hidden"
+            />
+          )}
+
+          <button
+            type="button"
+            onClick={newRun}
+            className="btn-solid w-full !justify-start !rounded-[10px] !px-3"
+          >
             <Plus className="size-4" />
-            Run baru
+            Obrolan baru
           </button>
-          <p className="eyebrow mt-6 mb-2">proyek</p>
+
+          <label className="relative mt-2.5 block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-ink-4" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Cari obrolan"
+              className="w-full rounded-[10px] border border-transparent bg-surface-2/60 py-2 pl-9 pr-3 text-[13px] text-ink-1 outline-none transition-colors placeholder:text-ink-4 focus:border-line-strong"
+            />
+          </label>
+
+          <p className="mono-label mt-7 mb-2 px-3">riwayat</p>
           <div className="space-y-0.5">
-            {conversations.map((c) => (
+            {history.length === 0 && (
+              <p className="px-3 py-2 text-[12.5px] leading-relaxed text-ink-4">
+                {query ? "Tidak ada yang cocok." : "Belum ada obrolan."}
+              </p>
+            )}
+            {history.map((c) => (
               <div
                 key={c.id}
                 className={cn(
-                  "group flex items-center gap-2 rounded-lg px-2.5 py-2.5 transition-colors",
-                  c.id === activeId ? "bg-ember-soft" : "hover:bg-surface-2",
+                  "group flex items-center gap-1.5 rounded-[10px] py-2 pl-3 pr-2 transition-colors",
+                  c.id === activeId
+                    ? "bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
+                    : "text-ink-3 hover:bg-surface-2/60 hover:text-ink-1",
                 )}
               >
                 <button
                   type="button"
                   onClick={() => void openConversation(c.id)}
-                  className="flex min-w-0 flex-1 flex-col items-start text-left"
+                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
                 >
-                  <span
-                    className={cn(
-                      "w-full truncate text-[13px]",
-                      c.id === activeId ? "text-ink-1" : "text-ink-3",
-                    )}
-                  >
-                    {c.title}
-                  </span>
-                  <span className="truncate font-mono text-[10px] text-ink-4">
-                    {getAgent(c.agent).name}
-                  </span>
+                  <MessageSquare className="size-3.5 shrink-0 opacity-50" />
+                  <span className="w-full truncate text-[13px]">{c.title}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => void remove(c.id)}
-                  aria-label="Hapus proyek"
+                  aria-label="Hapus obrolan"
                   className="shrink-0 rounded p-1 text-ink-4 opacity-0 transition-opacity group-hover:opacity-100 hover:text-ember"
                 >
                   <Trash2 className="size-3.5" />
@@ -670,10 +736,11 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => setRailOpen((v) => !v)}
-              className="btn-ghost px-2.5 py-1.5 lg:hidden"
-              aria-label="Proyek"
+              className="rounded-full p-2 text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink-1"
+              aria-label={railOpen ? "Tutup riwayat" : "Buka riwayat"}
+              aria-expanded={railOpen}
             >
-              <Plus className="size-3.5 rotate-45" />
+              <PanelLeft className="size-4" />
             </button>
             <div className="flex min-w-0 items-center gap-2.5">
               <span className="truncate text-[13px] text-ink-1">{slug}</span>
