@@ -382,14 +382,26 @@ export default app;`,
   };
 }
 
+/**
+ * Reads persisted state, filling in anything the stored copy is missing.
+ *
+ * A plain `JSON.parse(raw) as MockState` is a lie: the moment a field is added
+ * to MockState — `data` was — every browser holding an older snapshot returns
+ * an object without it, and the first access throws on `undefined`. Merging
+ * over a fresh seed means old snapshots get the new defaults and keep their
+ * existing data, instead of crashing the app on open.
+ */
 function load(): MockState {
+  const base = seed();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as MockState;
+    if (!raw) return base;
+    const saved = JSON.parse(raw) as Partial<MockState>;
+    return { ...base, ...saved };
   } catch {
     // Corrupt or unavailable storage falls through to a fresh seed.
+    return base;
   }
-  return seed();
 }
 
 function save(state: MockState) {

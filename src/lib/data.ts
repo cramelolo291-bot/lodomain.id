@@ -304,7 +304,9 @@ export function mergeTables(tables: Table[], incoming: Table[]): Table[] {
 }
 
 export function tablesFor(space: DataSpace, project: string): Table[] {
-  return space[project] ?? [];
+  // Defensive: a snapshot written before this field existed, or a project that
+  // has never been opened, must read as empty rather than throwing.
+  return space?.[project] ?? [];
 }
 
 function nextId(rows: Row[], key: string): number {

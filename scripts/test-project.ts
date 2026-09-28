@@ -124,6 +124,40 @@ async function main() {
   check("state is written to storage", typeof raw === "string" && raw.length > 0);
   check("data space is in the saved state", raw?.includes('"data"') === true);
 
+  // A snapshot written before `data` existed must still open. This is the
+  // exact case that threw "Cannot read properties of undefined" in the app.
+  console.log("\n— an old snapshot without the data field —");
+  const current = JSON.parse(mem.get("lolo.mock.v1")!);
+  const legacy: Record<string, unknown> = { ...current };
+  delete legacy.data;
+  mem.set("lolo.mock.v1", JSON.stringify(legacy));
+
+  const { api: reloaded } = await import(`../src/lib/api.ts?legacy=${Date.now()}`);
+  const restored = await reloaded.dataTables(PROJECT);
+  check("an old snapshot loads", Array.isArray(restored), JSON.stringify(restored).slice(0, 80));
+  check("the seeded tables come back", restored.length === 5, `${restored.length}`);
+  check(
+    "the seeded table set is intact",
+    ["users", "conversations", "pool_accounts", "usage_events", "api_keys"].every((n) =>
+      restored.some((t: { name: string }) => t.name === n),
+    ),
+    restored.map((t: { name: string }) => t.name).join(),
+  );
+  const conversations = await reloaded.listConversations();
+  check("conversations survived too", conversations.length > 0, `${conversations.length}`);
+
+  // Writing to the recovered state must work, not just reading.
+  const created = await reloaded.dataCreateTable(PROJECT, "recovered", [
+    { name: "id", type: "number", pk: true },
+  ]);
+  void created;
+  const recovered = await reloaded.dataTables(PROJECT);
+  check(
+    "the recovered state is writable",
+    recovered.some((t: { name: string }) => t.name === "recovered"),
+    recovered.map((t: { name: string }) => t.name).join(),
+  );
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 }

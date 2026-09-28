@@ -43,11 +43,20 @@ export function DataPanel({ project }: { project: string }) {
   const [newTable, setNewTable] = useState<string | null>(null);
 
   async function refresh() {
-    const list = await api.dataTables(project);
-    setTables(list);
-    setActive((current) =>
-      list.some((t) => t.name === current) ? current : (list[0]?.name ?? ""),
-    );
+    try {
+      const list = await api.dataTables(project);
+      setTables(list);
+      setActive((current) =>
+        list.some((t) => t.name === current) ? current : (list[0]?.name ?? ""),
+      );
+      setError(null);
+    } catch (e) {
+      // A failed read must degrade to an empty panel, not an unhandled
+      // rejection that blanks the workspace.
+      setTables([]);
+      setActive("");
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   useEffect(() => {
@@ -443,7 +452,7 @@ export function DataPanel({ project }: { project: string }) {
         </div>
       )}
 
-      {error && !showSql && (
+      {error && (
         <p className="shrink-0 border-t border-border px-3 py-2 text-[11px] text-danger">
           {error}
         </p>
