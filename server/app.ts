@@ -6,7 +6,6 @@
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,6 +14,8 @@ import { env, isProd } from "./env";
 import { ping } from "./db/client";
 import { isUp } from "./ollama/client";
 import { bodyLimit, rateLimit } from "./http/rate-limit";
+import { loggerFor, requestContext } from "./http/observability";
+import { ValidationError } from "./http/validate";
 import { auth } from "./routes/auth";
 import { routes } from "./routes/conversations";
 import { dataSpace } from "./routes/data-space";
@@ -25,8 +26,11 @@ import { openai } from "./routes/openai-compat";
 export function createApp() {
   const app = new Hono();
 
-  // Silent in tests; Hono's logger writes to stdout on every request.
-  if (env.NODE_ENV !== "test") app.use("*", logger());
+  // Replaces Hono's logger: assigns an id that comes back in the
+  // `x-request-id` header, and emits one structured line per request. The id is
+  // assigned in tests too — a test asserting on it needs the real behaviour —
+  // but the log line is suppressed so a suite run stays readable.
+  app.use("*", requestContext({ silent: env.NODE_ENV === "test" }));
   app.use("*", secureHeaders());
 
   // Tighter limits on the endpoints that cost money or send mail.
@@ -34,7 +38,9 @@ export function createApp() {
   app.use("/api/auth/verify", rateLimit({ limit: 20, windowMs: 60_000, scope: "verify" }));
   app.use("/api/keys", rateLimit({ limit: 20, windowMs: 60_000, scope: "keys" }));
   app.use("/api/turn", rateLimit({ limit: 60, windowMs: 60_000, scope: "turn" }));
-  app.use("/api/turn/stream", rateLimit({ limit: 60, windowMs: 60_000, scope: "turn" }));
+  // `/api/turn/stream` deliberately limits itself in its own router, because
+  // that mount point also carries a per-conversation budget. Limiting it here
+  // too would charge every stream twice against the same bucket.
   app.use("/v1/*", rateLimit({ limit: env.API_RATE_LIMIT, windowMs: env.API_RATE_WINDOW_MS, scope: "v1" }));
   app.use("/api/*", bodyLimit(2_000_000));
 
@@ -67,8 +73,35 @@ export function createApp() {
   app.route("/", openai);
 
   app.onError((err, c) => {
-    console.error("[error]", err);
-    const status = "status" in err && typeof err.status === "number" ? err.status : 500;
+    // A schema mismatch is the caller's fault and needs a useful answer: which
+    // field, and what was expected. A bare 400 with "Request failed validation"
+    // makes the API unusable without a debugger.
+    if (err instanceof ValidationError) {
+      loggerFor(c).warn("validation failed", { path: c.req.path, issues: err.issues });
+      return c.json(
+        { error: { message: err.message, type: "validation_error", issues: err.issues } },
+        400,
+      );
+    }
+
+    const status =
+      "status" in err && typeof (err as { status?: unknown }).status === "number"
+        ? (err as { status: number }).status
+        : 500;
+
+    // 5xx is our fault, so the stack is worth keeping. 4xx is not, and echoing
+    // an internal message back to the client leaks schema and file layout.
+    if (status >= 500) {
+      loggerFor(c).error("unhandled error", {
+        path: c.req.path,
+        method: c.req.method,
+        status,
+        err: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : err,
+      });
+      return c.json({ error: { message: "Internal server error" } }, 500);
+    }
+
+    loggerFor(c).warn("request rejected", { path: c.req.path, message: err.message, status });
     return c.json({ error: { message: err.message } }, status as 400);
   });
 

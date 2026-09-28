@@ -17,6 +17,7 @@ import { hashToken } from "../auth/tokens";
 import { chat, chatStream, listModels } from "../ollama/client";
 import { MAX_MODELS, getLocalModel } from "../ollama/models";
 import { getAgent } from "../../src/lib/catalog";
+import { chatBody } from "../http/validate";
 
 declare module "hono" {
   interface ContextVariableMap {
@@ -95,22 +96,21 @@ openai.get("/v1/models", authed(async (c) => {
   });
 }));
 
-type ChatBody = {
-  model?: string;
-  messages?: Array<{ role: string; content: string }>;
-  stream?: boolean;
-  temperature?: number;
-  max_tokens?: number;
-  /** Lolo-specific: which specialist should answer. */
-  agent?: string;
-};
-
 openai.post("/v1/chat/completions", authed(async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as ChatBody;
-
-  if (!body.model || !body.messages?.length) {
-    return c.json(error("model and messages are required", "invalid_request_error"), 400);
+  const raw = await c.req.json().catch(() => ({}));
+  const parsed = chatBody.safeParse(raw);
+  if (!parsed.success) {
+    return c.json(
+      error(
+        parsed.error.issues[0]?.message ?? "Invalid request body",
+        "invalid_request_error",
+        400,
+      ),
+      400,
+    );
   }
+  // `parsed.data` is fully narrowed, so `model` and `messages` are known good.
+  const body = parsed.data;
 
   const id = `chatcmpl-${Date.now().toString(36)}`;
   const created = Math.floor(Date.now() / 1000);

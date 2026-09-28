@@ -11,6 +11,10 @@
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "db:migrate": "tsx server/db/migrate.ts",
+    "db:verify": "tsx server/db/backup.ts verify",
+    "db:backup": "tsx server/db/backup.ts backup",
+    "db:restore": "tsx server/db/backup.ts restore",
+    "db:list-backups": "tsx server/db/backup.ts list",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc -b --noEmit",
     "test:data": "tsx scripts/test-data.ts",
@@ -20,7 +24,8 @@
     "test:sql": "tsx scripts/test-sql.ts",
     "test:api": "tsx scripts/test-api.ts",
     "test:pipeline": "tsx scripts/test-pipeline.ts",
-    "test": "npm run test:data && npm run test:turn && npm run test:server && npm run test:schema && npm run test:sql && npm run test:api && npm run test:pipeline"
+    "test:harden": "tsx scripts/test-harden.ts",
+    "test": "npm run test:data && npm run test:turn && npm run test:server && npm run test:schema && npm run test:sql && npm run test:api && npm run test:pipeline && npm run test:harden"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

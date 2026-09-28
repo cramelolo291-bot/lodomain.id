@@ -19,35 +19,92 @@ const TRACKING = `
   );
 `;
 
+/**
+ * Arbitrary but fixed key. Two servers booting at once would otherwise both see
+ * an unapplied migration and try to run it; `create type` is not idempotent, so
+ * the second one dies mid-migration. The lock makes the loser wait, then find
+ * the work already done.
+ */
+const LOCK_KEY = 8_675_309;
+
+/** A connection checked out of the pool, for the whole duration of a lock. */
+type Conn = Awaited<ReturnType<typeof pool.reserve>>;
+
+/**
+ * Runs `fn` while holding the migration lock, on one dedicated connection.
+ *
+ * The work happens on that same connection rather than on the pool. A reserved
+ * connection that then reaches back into the pool for its own statements needs
+ * a second connection to make progress — fine on a big Postgres, fatal on a
+ * small pool, and a deadlock waiting to happen on a single-connection backend.
+ */
+export async function withLock<T>(
+  fn: (client: Conn) => Promise<T>,
+  timeoutMs = 30_000,
+): Promise<T> {
+  const client = await pool.reserve();
+  const deadline = Date.now() + timeoutMs;
+
+  try {
+    for (;;) {
+      const [row] = await client`select pg_try_advisory_lock(${LOCK_KEY}) as ok`;
+      if (row?.ok) break;
+      if (Date.now() > deadline) {
+        throw new Error(
+          "Another process is holding the migration lock. Wait for it to finish, then retry.",
+        );
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+
+    return await fn(client);
+  } finally {
+    // Released even on a throw: a stranded lock would stop every later boot.
+    await client`select pg_advisory_unlock(${LOCK_KEY})`.catch(() => {});
+    client.release();
+  }
+}
+
 /** Each file runs in its own transaction, so a failure never half-applies. */
 export async function migrate(log = console.log): Promise<number> {
-  await pool.unsafe(TRACKING);
+  return withLock(async (client) => {
+    await client.unsafe(TRACKING);
 
-  const applied = new Set(
-    (
-      await pool<{ name: string }[]>`select name from schema_migrations`
-    ).map((r) => r.name),
-  );
+    const applied = new Set(
+      (
+        await client<{ name: string }[]>`select name from schema_migrations`
+      ).map((r) => r.name),
+    );
 
-  const files = (await readdir(dir))
-    .filter((f) => f.endsWith(".sql"))
-    .sort();
+    const files = (await readdir(dir))
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
 
-  let count = 0;
-  for (const name of files) {
-    if (applied.has(name)) continue;
+    let count = 0;
+    for (const name of files) {
+      if (applied.has(name)) continue;
 
-    const sql = await readFile(join(dir, name), "utf8");
-    await pool.begin(async (tx) => {
-      await tx.unsafe(sql);
-      await tx`insert into schema_migrations (name) values (${name})`;
-    });
+      const sql = await readFile(join(dir, name), "utf8");
 
-    log(`  applied ${name}`);
-    count += 1;
-  }
+      // A reserved connection has no `.begin`, so the transaction is driven by
+      // hand. On failure the tracking row is rolled back with the DDL, so the
+      // next run retries the whole file rather than skipping it.
+      await client.unsafe("begin");
+      try {
+        await client.unsafe(sql);
+        await client`insert into schema_migrations (name) values (${name})`;
+        await client.unsafe("commit");
+      } catch (e) {
+        await client.unsafe("rollback").catch(() => {});
+        throw e;
+      }
 
-  return count;
+      log(`  applied ${name}`);
+      count += 1;
+    }
+
+    return count;
+  });
 }
 
 /** Fails loudly if the database is behind. Called during boot. */

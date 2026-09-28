@@ -17,13 +17,20 @@ import {
 import { env } from "../env";
 import { GATEWAY_ROUTES } from "../../src/lib/catalog";
 import { generateApiKey } from "../auth/tokens";
-import { listModels, isUp } from "../ollama/client";
-import {
-  clearExpiredCooldowns,
-  summary,
-  withLiveStatus,
-} from "../ollama/pool";
+import { isUp, listModels } from "../ollama/client";
+import { clearExpiredCooldowns, summary, withLiveStatus } from "../ollama/pool";
 import { MAX_MODELS } from "../ollama/models";
+import {
+  body,
+  createAccountBody,
+  createKeyBody,
+  limitQuery,
+  params,
+  query,
+  setStatusBody,
+  uuid,
+} from "../http/validate";
+import { z } from "zod";
 
 export const panel = new Hono();
 
@@ -65,16 +72,11 @@ panel.get("/pool", requireAdmin, async (c) => {
 });
 
 panel.post("/pool", requireAdmin, async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as {
-    label?: string;
-    tier?: "free" | "subscribed";
-  };
-  const label = body.label?.trim();
-  if (!label) return c.json({ error: { message: "label is required" } }, 400);
+  const { label, tier } = await body(c, createAccountBody);
 
   // Slot and concurrency come from the tier table, never from the request.
   const limits =
-    body.tier === "subscribed" ? { slots: 3, concurrency: 8 } : { slots: 1, concurrency: 3 };
+    tier === "subscribed" ? { slots: 3, concurrency: 8 } : { slots: 1, concurrency: 3 };
 
   const exists = await db
     .select({ id: poolAccounts.id })
@@ -85,7 +87,7 @@ panel.post("/pool", requireAdmin, async (c) => {
 
   await db.insert(poolAccounts).values({
     label,
-    tier: body.tier ?? "free",
+    tier,
     maxSlots: limits.slots,
     concurrency: limits.concurrency,
   });
@@ -93,18 +95,21 @@ panel.post("/pool", requireAdmin, async (c) => {
 });
 
 panel.patch("/pool/:id", requireAdmin, async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as {
-    status?: "healthy" | "disabled";
-  };
-  await db
+  const { id } = params(c, z.object({ id: uuid }));
+  const { status } = await body(c, setStatusBody);
+
+  const [updated] = await db
     .update(poolAccounts)
-    .set({ status: body.status ?? "healthy" })
-    .where(eq(poolAccounts.id, c.req.param("id")));
+    .set({ status })
+    .where(eq(poolAccounts.id, id))
+    .returning({ id: poolAccounts.id });
+  if (!updated) return c.json({ error: { message: "Not found" } }, 404);
   return c.json({ ok: true });
 });
 
 panel.delete("/pool/:id", requireAdmin, async (c) => {
-  await db.delete(poolAccounts).where(eq(poolAccounts.id, c.req.param("id")));
+  const { id } = params(c, z.object({ id: uuid }));
+  await db.delete(poolAccounts).where(eq(poolAccounts.id, id));
   return c.json({ ok: true });
 });
 
@@ -117,12 +122,13 @@ panel.post("/pool/clear-cooldowns", requireAdmin, async (c) => {
 
 panel.get("/traces", requireAuth, async (c) => {
   const { userId } = c.get("session");
+  const { limit } = query(c, limitQuery);
   const rows = await db
     .select()
     .from(traces)
     .where(eq(traces.userId, userId))
     .orderBy(desc(traces.createdAt))
-    .limit(100);
+    .limit(limit);
 
   return c.json(
     rows.map((t) => ({
@@ -240,9 +246,7 @@ panel.get("/keys", requireAuth, async (c) => {
 
 panel.post("/keys", requireAuth, async (c) => {
   const { userId } = c.get("session");
-  const body = (await c.req.json().catch(() => ({}))) as { name?: string };
-  const name = body.name?.trim();
-  if (!name) return c.json({ error: { message: "name is required" } }, 400);
+  const { name } = await body(c, createKeyBody);
 
   const { secret, prefix, hash } = generateApiKey();
   const [created] = await db
@@ -256,9 +260,10 @@ panel.post("/keys", requireAuth, async (c) => {
 
 panel.delete("/keys/:id", requireAuth, async (c) => {
   const { userId } = c.get("session");
+  const { id } = params(c, z.object({ id: uuid }));
   await db
     .update(apiKeys)
     .set({ revokedAt: new Date() })
-    .where(and(eq(apiKeys.id, c.req.param("id")), eq(apiKeys.userId, userId)));
+    .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)));
   return c.json({ ok: true });
 });

@@ -1,21 +1,26 @@
 // The per-project data space, backed by real tables.
 //
 // Every statement here touches only tables belonging to a project the caller
-// owns. A table name arrives as a URL segment, so it is bound as a parameter
-// and never interpolated into SQL.
+// owns. A table name arrives as a URL segment or a body field, so it is
+// validated against an identifier pattern and bound as a parameter — never
+// interpolated into SQL.
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { sql, type SQL } from "drizzle-orm";
 import { requireAuth } from "../auth/session";
 import { db, pool } from "../db/client";
-import {
-  projects,
-  projectColumns,
-  projectRows,
-  projectTables,
-} from "../db/schema";
+import { projects, projectColumns, projectRows, projectTables } from "../db/schema";
 import { applySql } from "../lib/data-sql";
+import {
+  body,
+  createTableBody,
+  identifier,
+  params,
+  patchRowBody,
+  queryBody,
+  rowBody,
+} from "../http/validate";
+import { z } from "zod";
 
 export const dataSpace = new Hono();
 dataSpace.use("*", requireAuth);
@@ -24,6 +29,13 @@ type Value = string | number | boolean | null;
 
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const tableParams = z.object({
+  project: z.string().min(1).max(120),
+  table: identifier,
+});
+
+const rowParams = tableParams.extend({ rowId: z.string().min(1).max(80) });
 
 /**
  * Resolves the caller's project from either a uuid or its name. The workspace
@@ -55,7 +67,9 @@ async function resolveProject(idOrName: string, userId: string) {
 
 dataSpace.get("/projects/:project/tables", async (c) => {
   const { userId } = c.get("session");
-  const project = await resolveProject(c.req.param("project"), userId);
+  const { project: ref } = params(c, z.object({ project: z.string().min(1).max(120) }));
+
+  const project = await resolveProject(ref, userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const tables = await db
@@ -81,10 +95,10 @@ dataSpace.get("/projects/:project/tables", async (c) => {
     out.push({
       id: t.id,
       name: t.name,
-      columns: columns.map((c2) => ({
-        name: c2.name,
-        type: c2.type,
-        pk: c2.isPk,
+      columns: columns.map((col) => ({
+        name: col.name,
+        type: col.type,
+        pk: col.isPk,
       })),
       rows: rows.map((r) => r.data as Record<string, Value>),
     });
@@ -95,42 +109,44 @@ dataSpace.get("/projects/:project/tables", async (c) => {
 
 dataSpace.post("/projects/:project/tables", async (c) => {
   const { userId } = c.get("session");
-  const project = await resolveProject(c.req.param("project"), userId);
+  const { project: ref } = params(c, z.object({ project: z.string().min(1).max(120) }));
+  const input = await body(c, createTableBody);
+
+  const project = await resolveProject(ref, userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
-
-  const body = (await c.req.json().catch(() => ({}))) as {
-    name?: string;
-    columns?: Array<{ name: string; type: string; pk?: boolean }>;
-  };
-
-  const name = body.name?.trim();
-  if (!name) return c.json({ error: { message: "name is required" } }, 400);
-  if (!/^[a-z_][a-z0-9_]*$/i.test(name)) {
-    return c.json({ error: { message: "Table name must be a plain identifier" } }, 400);
-  }
 
   const exists = await db
     .select({ id: projectTables.id })
     .from(projectTables)
-    .where(and(eq(projectTables.projectId, project.id), eq(projectTables.name, name)))
+    .where(and(eq(projectTables.projectId, project.id), eq(projectTables.name, input.name)))
     .limit(1);
   if (exists[0]) {
-    return c.json({ error: { message: `Table already exists: ${name}` } }, 409);
+    return c.json({ error: { message: `Table already exists: ${input.name}` } }, 409);
   }
 
   const [created] = await db
     .insert(projectTables)
-    .values({ projectId: project.id, name })
+    .values({ projectId: project.id, name: input.name })
     .returning();
 
-  const columns = body.columns?.length ? body.columns : [{ name: "id", type: "number", pk: true }];
+  const columns = input.columns?.length
+    ? input.columns
+    : [{ name: "id", type: "number" as const, pk: true }];
+
+  // Two tables with the same column name would violate the composite key, so
+  // duplicates are dropped rather than failing the whole request.
+  const seen = new Set<string>();
+  const unique = columns.filter((col) => {
+    if (seen.has(col.name)) return false;
+    seen.add(col.name);
+    return true;
+  });
+
   await db.insert(projectColumns).values(
-    columns.map((col, i) => ({
+    unique.map((col, i) => ({
       tableId: created!.id,
       name: col.name,
-      type: (["text", "number", "bool", "date"].includes(col.type)
-        ? col.type
-        : "text") as "text" | "number" | "bool" | "date",
+      type: col.type,
       isPk: col.pk ?? false,
       position: i,
     })),
@@ -141,17 +157,16 @@ dataSpace.post("/projects/:project/tables", async (c) => {
 
 dataSpace.delete("/projects/:project/tables/:table", async (c) => {
   const { userId } = c.get("session");
-  const project = await resolveProject(c.req.param("project"), userId);
+  const { project: ref, table } = params(c, tableParams);
+
+  const project = await resolveProject(ref, userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const found = await db
     .select({ id: projectTables.id })
     .from(projectTables)
     .where(
-      and(
-        eq(projectTables.projectId, project.id),
-        eq(projectTables.name, c.req.param("table")),
-      ),
+      and(eq(projectTables.projectId, project.id), eq(projectTables.name, table)),
     )
     .limit(1);
   if (!found[0]) return c.json({ error: { message: "Not found" } }, 404);
@@ -174,74 +189,75 @@ async function findTable(projectId: string, name: string) {
 
 dataSpace.post("/projects/:project/tables/:table/rows", async (c) => {
   const { userId } = c.get("session");
-  const project = await resolveProject(c.req.param("project"), userId);
+  const { project: ref, table } = params(c, tableParams);
+  const incoming = await body(c, rowBody);
+
+  const project = await resolveProject(ref, userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
-  const table = await findTable(project.id, c.req.param("table"));
-  if (!table) return c.json({ error: { message: "Not found" } }, 404);
+  const target = await findTable(project.id, table);
+  if (!target) return c.json({ error: { message: "Not found" } }, 404);
 
   const columns = await db
     .select()
     .from(projectColumns)
-    .where(eq(projectColumns.tableId, table.id));
+    .where(eq(projectColumns.tableId, target.id));
   const pk = columns.find((col) => col.isPk);
 
-  const incoming = (await c.req.json().catch(() => ({}))) as Record<string, Value>;
+  // Unknown keys in the request are dropped rather than stored, so a typo
+  // cannot silently create a column the schema does not declare.
+  const known = new Set(columns.map((col) => col.name));
   const data: Record<string, Value> = {};
-  for (const col of columns) data[col.name] = incoming[col.name] ?? null;
+  for (const col of columns) {
+    data[col.name] = known.has(col.name) ? (incoming[col.name] ?? null) : null;
+  }
 
-  if (pk) {
-    // Explicit ids are honoured so imported data keeps its keys; otherwise the
-    // next integer after the current maximum is allocated. The payload is
-    // jsonb, so the maximum has to be computed in SQL.
-    if (data[pk.name] === null || data[pk.name] === undefined) {
-      const counted = await pool<{ max: number | null }[]>`
-        select max((data->>${pk.name})::bigint) as max
-          from project_rows
-         where table_id = ${table.id}
-      `;
-      data[pk.name] = Number(counted[0]?.max ?? 0) + 1;
-    }
+  if (pk && (data[pk.name] === null || data[pk.name] === undefined)) {
+    const counted = await pool<{ max: number | null }[]>`
+      select max((data->>${pk.name})::bigint) as max
+        from project_rows
+       where table_id = ${target.id}
+    `;
+    data[pk.name] = Number(counted[0]?.max ?? 0) + 1;
   }
 
   const [created] = await db
     .insert(projectRows)
-    .values({ tableId: table.id, data })
-    .returning({ id: projectRows.id, data: projectRows.data });
+    .values({ tableId: target.id, data })
+    .returning({ data: projectRows.data });
 
   return c.json(created!.data as Record<string, Value>);
 });
 
 dataSpace.patch("/projects/:project/tables/:table/rows/:rowId", async (c) => {
   const { userId } = c.get("session");
-  const project = await resolveProject(c.req.param("project"), userId);
+  const { project: ref, table, rowId } = params(c, rowParams);
+  const input = await body(c, patchRowBody);
+
+  const project = await resolveProject(ref, userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
-  const table = await findTable(project.id, c.req.param("table"));
-  if (!table) return c.json({ error: { message: "Not found" } }, 404);
-
-  const body = (await c.req.json().catch(() => ({}))) as {
-    column?: string;
-    value?: Value;
-  };
-  if (!body.column) return c.json({ error: { message: "column is required" } }, 400);
+  const target = await findTable(project.id, table);
+  if (!target) return c.json({ error: { message: "Not found" } }, 404);
 
   const columns = await db
     .select()
     .from(projectColumns)
-    .where(eq(projectColumns.tableId, table.id));
-  const col = columns.find((x) => x.name === body.column);
-  if (!col) return c.json({ error: { message: `Unknown column: ${body.column}` } }, 400);
+    .where(eq(projectColumns.tableId, target.id));
+  const col = columns.find((x) => x.name === input.column);
+  if (!col) return c.json({ error: { message: `Unknown column: ${input.column}` } }, 400);
 
-  const rowId = c.req.param("rowId");
   const [existing] = await db
     .select({ data: projectRows.data })
     .from(projectRows)
-    .where(and(eq(projectRows.id, rowId), eq(projectRows.tableId, table.id)))
+    .where(and(eq(projectRows.id, rowId), eq(projectRows.tableId, target.id)))
     .limit(1);
   if (!existing) return c.json({ error: { message: "Not found" } }, 404);
 
-  const merged = { ...(existing.data as Record<string, Value>), [col.name]: body.value ?? null };
+  const merged = {
+    ...(existing.data as Record<string, Value>),
+    [col.name]: input.value ?? null,
+  };
 
   const [updated] = await db
     .update(projectRows)
@@ -254,14 +270,15 @@ dataSpace.patch("/projects/:project/tables/:table/rows/:rowId", async (c) => {
 
 dataSpace.delete("/projects/:project/tables/:table/rows/:rowId", async (c) => {
   const { userId } = c.get("session");
-  const project = await resolveProject(c.req.param("project"), userId);
+  const { project: ref, table, rowId } = params(c, rowParams);
+  const pk = c.req.query("pk") ?? "id";
+  const key = c.req.param("rowId");
+
+  const project = await resolveProject(ref, userId);
   if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
-  const table = await findTable(project.id, c.req.param("table"));
-  if (!table) return c.json({ error: { message: "Not found" } }, 404);
-
-  const pkName = c.req.query("pk") ?? "id";
-  const key = c.req.param("rowId");
+  const target = await findTable(project.id, table);
+  if (!target) return c.json({ error: { message: "Not found" } }, 404);
 
   // Row ids are uuids on the server; the grid addresses rows by their primary
   // key value, so the row is resolved through the jsonb payload.
@@ -270,8 +287,8 @@ dataSpace.delete("/projects/:project/tables/:table/rows/:rowId", async (c) => {
     .from(projectRows)
     .where(
       and(
-        eq(projectRows.tableId, table.id),
-        sql`${projectRows.data}->>${pkName} = ${key}`,
+        eq(projectRows.tableId, target.id),
+        sql`${projectRows.data}->>${pk} = ${key}`,
       ),
     )
     .limit(1);
@@ -290,11 +307,11 @@ dataSpace.delete("/projects/:project/tables/:table/rows/:rowId", async (c) => {
  */
 dataSpace.post("/projects/:project/query", async (c) => {
   const { userId } = c.get("session");
-  const project = await resolveProject(c.req.param("project"), userId);
-  if (!project) return c.json({ error: { message: "Not found" } }, 404);
+  const { project: ref } = params(c, z.object({ project: z.string().min(1).max(120) }));
+  const { sql: statement } = await body(c, queryBody);
 
-  const body = (await c.req.json().catch(() => ({}))) as { sql?: string };
-  if (!body.sql) return c.json({ error: { message: "sql is required" } }, 400);
+  const project = await resolveProject(ref, userId);
+  if (!project) return c.json({ error: { message: "Not found" } }, 404);
 
   const tables = await db
     .select()
@@ -317,14 +334,17 @@ dataSpace.post("/projects/:project/query", async (c) => {
     hydrated.push({
       name: t.name,
       id: t.id,
-      columns: columns.map((c2) => ({ name: c2.name, type: c2.type, pk: c2.isPk })),
+      columns: columns.map((col) => ({
+        name: col.name,
+        type: col.type,
+        pk: col.isPk,
+      })),
       rows: rows.map((r) => r.data as Record<string, Value>),
     });
   }
 
-  const outcome = applySql(hydrated, body.sql);
+  const outcome = applySql(hydrated, statement);
 
-  // Persist whatever the statement changed.
   for (const t of outcome.tables) {
     if (!t.id) continue;
     const before = hydrated.find((h) => h.name === t.name);
@@ -344,12 +364,9 @@ dataSpace.post("/projects/:project/query", async (c) => {
     }
 
     for (const row of t.rows) {
-      const match = before.rows.find((r) => JSON.stringify(r) === JSON.stringify(row));
-      if (match) {
-        await db
-          .insert(projectRows)
-          .values({ tableId: t.id, data: row })
-          .onConflictDoNothing();
+      const exists = before.rows.some((r) => JSON.stringify(r) === JSON.stringify(row));
+      if (exists) {
+        await db.insert(projectRows).values({ tableId: t.id, data: row }).onConflictDoNothing();
       } else {
         await db.insert(projectRows).values({ tableId: t.id, data: row });
       }
@@ -358,5 +375,3 @@ dataSpace.post("/projects/:project/query", async (c) => {
 
   return c.json(outcome.result);
 });
-
-export type { SQL };

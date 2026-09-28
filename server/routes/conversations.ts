@@ -10,10 +10,22 @@ import { db } from "../db/client";
 import { conversations, messages, projects, projectFiles } from "../db/schema";
 import { runTurn } from "../pipeline/run-turn";
 import { runCommand } from "../terminal/run";
-import { MAX_MODELS } from "../ollama/models";
+import {
+  body,
+  createConversationBody,
+  params,
+  terminalCommand,
+  turnBody,
+  updateConversationBody,
+  uuid,
+} from "../http/validate";
+import { z } from "zod";
 
 export const routes = new Hono();
 routes.use("*", requireAuth);
+
+const conversationParams = z.object({ id: uuid });
+const messageParams = z.object({ id: uuid });
 
 /** Loads a project the caller owns, or null. */
 async function ownProject(projectId: string, userId: string) {
@@ -50,7 +62,10 @@ routes.get("/project", async (c) => {
     .from(projectFiles)
     .where(eq(projectFiles.projectId, project.id));
 
-  return c.json({ name: project.name, files: Object.fromEntries(files.map((f) => [f.path, f.content])) });
+  return c.json({
+    name: project.name,
+    files: Object.fromEntries(files.map((f) => [f.path, f.content])),
+  });
 });
 
 routes.delete("/project", async (c) => {
@@ -86,10 +101,7 @@ routes.get("/conversations", async (c) => {
 
 routes.post("/conversations", async (c) => {
   const { userId } = c.get("session");
-  const body = (await c.req.json().catch(() => ({}))) as {
-    agent?: string;
-    model?: string;
-  };
+  const input = await body(c, createConversationBody);
   const project = await ensureProject(userId);
 
   const [created] = await db
@@ -98,8 +110,8 @@ routes.post("/conversations", async (c) => {
       projectId: project.id,
       userId,
       title: "New run",
-      agent: body.agent ?? "lolo",
-      model: body.model ?? MAX_MODELS[0]!.id,
+      agent: input.agent ?? "lolo",
+      model: input.model ?? "qwen3:8b",
     })
     .returning();
 
@@ -114,17 +126,14 @@ routes.post("/conversations", async (c) => {
 
 routes.patch("/conversations/:id", async (c) => {
   const { userId } = c.get("session");
-  const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as {
-    agent?: string;
-    model?: string;
-  };
+  const { id } = params(c, conversationParams);
+  const input = await body(c, updateConversationBody);
 
   const [updated] = await db
     .update(conversations)
     .set({
-      ...(body.agent ? { agent: body.agent } : {}),
-      ...(body.model ? { model: body.model } : {}),
+      ...(input.agent ? { agent: input.agent } : {}),
+      ...(input.model ? { model: input.model } : {}),
       updatedAt: new Date(),
     })
     .where(and(eq(conversations.id, id), eq(conversations.userId, userId)))
@@ -136,15 +145,16 @@ routes.patch("/conversations/:id", async (c) => {
 
 routes.delete("/conversations/:id", async (c) => {
   const { userId } = c.get("session");
+  const { id } = params(c, conversationParams);
   await db
     .delete(conversations)
-    .where(and(eq(conversations.id, c.req.param("id")), eq(conversations.userId, userId)));
+    .where(and(eq(conversations.id, id), eq(conversations.userId, userId)));
   return c.json({ ok: true });
 });
 
 routes.get("/conversations/:id/messages", async (c) => {
   const { userId } = c.get("session");
-  const id = c.req.param("id");
+  const { id } = params(c, messageParams);
 
   const owned = await db
     .select({ id: conversations.id })
@@ -182,15 +192,7 @@ routes.get("/conversations/:id/messages", async (c) => {
 
 routes.post("/turn", async (c) => {
   const { userId } = c.get("session");
-  const body = (await c.req.json().catch(() => ({}))) as {
-    conversationId?: string;
-    prompt?: string;
-    agent?: string;
-    model?: string;
-  };
-
-  if (!body.prompt) return c.json({ error: { message: "prompt is required" } }, 400);
-
+  const input = await body(c, turnBody);
   const project = await ensureProject(userId);
 
   // A conversation the caller does not own is a 404, not a 403: confirming it
@@ -198,32 +200,27 @@ routes.post("/turn", async (c) => {
   const owned = await db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(
-      and(
-        eq(conversations.id, body.conversationId ?? ""),
-        eq(conversations.userId, userId),
-      ),
-    )
+    .where(and(eq(conversations.id, input.conversationId), eq(conversations.userId, userId)))
     .limit(1);
   if (!owned[0]) return c.json({ error: { message: "Not found" } }, 404);
 
   const result = await runTurn({
-    conversationId: body.conversationId!,
+    conversationId: input.conversationId,
     projectId: project.id,
     userId,
-    prompt: body.prompt,
-    agent: body.agent ?? "lolo",
-    model: body.model ?? MAX_MODELS[0]!.id,
+    prompt: input.prompt,
+    agent: input.agent,
+    model: input.model,
+    effort: input.effort,
+    localModel: input.localModel,
   });
 
   if (result.status === "ok") {
     await db
       .update(conversations)
       .set({ updatedAt: new Date() })
-      .where(eq(conversations.id, body.conversationId!));
-  }
+      .where(eq(conversations.id, input.conversationId));
 
-  if (result.status === "ok") {
     return c.json({
       status: "ok",
       traceId: result.traceId,
@@ -246,14 +243,15 @@ routes.post("/turn", async (c) => {
 
 routes.post("/terminal", async (c) => {
   const { userId } = c.get("session");
-  const body = (await c.req.json().catch(() => ({}))) as { cmd?: string };
-  if (!body.cmd) return c.json({ error: { message: "cmd is required" } }, 400);
-
+  const { cmd } = await body(c, z.object({ cmd: terminalCommand }));
   const project = await ensureProject(userId);
+
   const files = await db
     .select({ path: projectFiles.path, content: projectFiles.content })
     .from(projectFiles)
     .where(eq(projectFiles.projectId, project.id));
 
-  return c.json(runCommand(body.cmd, Object.fromEntries(files.map((f) => [f.path, f.content]))));
+  return c.json(
+    runCommand(cmd, Object.fromEntries(files.map((f) => [f.path, f.content]))),
+  );
 });

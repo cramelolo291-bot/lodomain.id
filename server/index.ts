@@ -14,6 +14,18 @@ import { pruneSessions } from "./auth/session";
 import { pruneMagicLinks } from "./auth/magic-link";
 import { clearExpiredCooldowns, resetOrphans } from "./ollama/pool";
 import { isUp } from "./ollama/client";
+import { log } from "./http/observability";
+
+/** How long a draining request gets before the process exits anyway. */
+const DRAIN_TIMEOUT_MS = 30_000;
+const DRAIN_TICK_MS = 100;
+
+/**
+ * What shutdown needs from the listener. @hono/node-server returns a union of
+ * an HTTP/1 and an HTTP/2 server; only the shutdown surface is used here, so it
+ * is narrowed to exactly that instead of importing both node types.
+ */
+type Closeable = { close: (cb: () => void) => unknown; closeAllConnections?: () => void };
 
 async function boot() {
   console.log("→ checking database");
@@ -49,7 +61,7 @@ async function boot() {
     );
   }
 
-  serve({ fetch: app.fetch, port: env.PORT }, (info: { port: number }) => {
+  server = serve({ fetch: counted, port: env.PORT }, (info: { port: number }) => {
     console.log(`\n  Lolo AI server → http://localhost:${info.port}`);
     console.log(`  database        ${env.DATABASE_URL.replace(/:[^:@/]+@/, ":***@")}`);
     console.log(`  ollama          ${env.OLLAMA_URL} ${ollamaUp ? "✓" : "✗"}`);
@@ -57,15 +69,70 @@ async function boot() {
   });
 }
 
+// In-flight tracking. A turn can hold a pooled model slot and a transaction for
+// a minute; killing the process mid-turn strands both. So shutdown stops
+// accepting, waits for what is running, and only then releases the pool and the
+// database.
+let inFlight = 0;
+let draining = false;
+
+async function counted(request: Request): Promise<Response> {
+  inFlight += 1;
+  try {
+    return await app.fetch(request);
+  } finally {
+    inFlight -= 1;
+  }
+}
+
+async function drain(): Promise<void> {
+  draining = true;
+  log.info("draining", { inFlight, timeoutMs: DRAIN_TIMEOUT_MS });
+
+  const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+  while (inFlight > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, DRAIN_TICK_MS));
+  }
+  if (inFlight > 0) {
+    log.warn("drain timed out, exiting with requests still running", { inFlight });
+  }
+}
+
+async function shutdown(signal: string, code = 0): Promise<void> {
+  if (draining) return;
+  console.log(`\n${signal} — closing.`);
+
+  // Stop the listener first, so nothing new arrives while we wait.
+  const listener = server;
+  if (listener) {
+    await new Promise<void>((resolve) => {
+      listener.close(() => resolve());
+      // Keep-alive sockets would otherwise hold `close` open for their full
+      // idle timeout; a shutdown should not wait that long.
+      listener.closeAllConnections?.();
+    });
+  }
+
+  await drain();
+  await close();
+  process.exit(code);
+}
+
+let server: Closeable | undefined;
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    console.log(`\n${signal} — closing.`);
-    void close().finally(() => process.exit(0));
-  });
+  process.on(signal, () => void shutdown(signal));
 }
 
 process.on("unhandledRejection", (reason) => {
-  console.error("[unhandled]", reason);
+  log.error("unhandled rejection", { reason: String(reason) });
+});
+
+process.on("uncaughtException", (err) => {
+  // An uncaught exception leaves the process in an unknown state. Log it with
+  // the real stack — which `log.error` redacts only at the top level — and go.
+  console.error("[fatal]", err);
+  void shutdown("uncaughtException", 1);
 });
 
 void boot();

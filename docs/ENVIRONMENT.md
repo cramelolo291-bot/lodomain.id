@@ -53,6 +53,20 @@ MAX_ATTEMPTS=3
 API_RATE_LIMIT=600
 API_RATE_WINDOW_MS=60000
 
+# ── Edge and logs ────────────────────────────────────────────────────────
+# Leave empty unless a reverse proxy (Caddy, nginx, Cloudflare, a tunnel) sits
+# in front. `x-forwarded-for` is set by the client, so believing it without a
+# trusted hop in front hands every rate limiter a spoofable identity — anyone
+# could rotate the header and walk past the limits. Set to `*` to trust any
+# peer, or to a comma-separated list of proxy IPs to trust only those.
+# TRUST_PROXY=10.0.0.1
+# Hard cap on tracked rate-limit buckets, so the map cannot grow on a
+# long-lived process under a flood of unique addresses.
+RATE_LIMIT_MAX_KEYS=20000
+# debug | info | warn | error. In production logs are JSON, one object per line.
+# Anything below info hides the per-request lines.
+LOG_LEVEL=info
+
 # ── Frontend (Vite) ──────────────────────────────────────────────────────
 # This is the line that connects the workspace UI to the real database.
 # http makes the built frontend talk to the Hono server instead of the
@@ -171,3 +185,47 @@ single-use by design; request a new one.
 **Magic link never arrives** — check the server log first. If the link was
 printed, mail is not configured. If it was sent, confirm the recipient is
 allowed to receive from your sending domain.
+
+## Backup and restore
+
+The database is the product. Three commands, all reading the same connection
+the server uses — no `pg_dump` required.
+
+```
+bun run db:backup                # → backups/lolo-<timestamp>.json
+bun run db:list-backups
+bun run db:verify                # exits 1 and lists problems if the schema drifted
+bun run db:restore backups/lolo-2026-09-28-07-00-00.json
+```
+
+`db:verify` is the one to run in CI or after a deploy: it compares the applied
+migrations against the files this build ships and reports any missing table.
+
+`db:restore` replaces what is there. Foreign keys are suspended for the load and
+re-enabled before the connection returns to the pool, and the whole insert runs
+in one transaction, so a failure mid-way rolls back instead of leaving half the
+tables truncated. Restore a dump taken from a *different* schema version and it
+will fail on the missing columns — restore migrations first, then data.
+
+A nightly `bun run db:backup` on the server box, plus a real `pg_dump` if you
+want indexes and constraints preserved, is enough to lose nothing.
+
+## Reading the logs
+
+Every response carries an `x-request-id`. Production logs are one JSON object
+per line, and that id is on every one of them, so a slow or failed request can
+be pulled out of a log file by grep:
+
+```
+grep '"requestId":"<id>"' server.log
+```
+
+A client that already sends `x-request-id` keeps its value, so the id spans the
+browser, the proxy and the server. Anything that looks like a log injection —
+a newline in the header, a control character — is discarded and replaced with a
+fresh id rather than reflected.
+
+Fields named `authorization`, `cookie`, `password`, `token`, `secret` or
+`api_key` are replaced with `[redacted]` before a line is written, at any
+depth. A 5xx logs the full stack server-side and answers the client a bare
+`Internal server error`.

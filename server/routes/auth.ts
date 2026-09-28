@@ -1,6 +1,6 @@
-// Auth routes. Every response here is shaped to match what the frontend's
-// `httpApi()` already expects, so switching VITE_API_MODE=http changes nothing
-// above the transport layer.
+// Auth routes. Every response is shaped to match what the frontend's
+// `httpApi()` expects, so switching VITE_API_MODE=http changes nothing above
+// the transport layer.
 
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
@@ -13,17 +13,15 @@ import {
   readSession,
 } from "../auth/session";
 import { env } from "../env";
+import { body, magicLinkBody, query as queryParam, tokenParam, uuid } from "../http/validate";
 
 export const auth = new Hono();
 
 auth.post("/auth/magic-link", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { email?: string };
-  if (!body.email) {
-    return c.json({ error: { message: "email is required" } }, 400);
-  }
+  const { email } = await body(c, magicLinkBody);
 
   try {
-    await requestMagicLink(body.email);
+    await requestMagicLink(email);
   } catch (e) {
     if (e instanceof LinkError) {
       return c.json({ error: { message: e.message } }, e.status);
@@ -37,8 +35,7 @@ auth.post("/auth/magic-link", async (c) => {
 });
 
 auth.get("/auth/verify", async (c) => {
-  const token = c.req.query("token");
-  if (!token) return c.json({ error: { message: "token is required" } }, 400);
+  const { token } = queryParam(c, tokenParam);
 
   let verified;
   try {
@@ -77,3 +74,5 @@ auth.post("/auth/logout", async (c) => {
   clearSessionCookie(c);
   return c.json({ ok: true });
 });
+
+export { uuid };

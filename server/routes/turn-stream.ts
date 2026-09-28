@@ -22,28 +22,18 @@ import { db } from "../db/client";
 import { conversations, projects } from "../db/schema";
 import { streamTurn, type TurnEvent } from "../pipeline/run-turn";
 import { rateLimit } from "../http/rate-limit";
+import { body as parseBody, turnBody } from "../http/validate";
 
 export const turnStream = new Hono();
 
 turnStream.post("/api/turn/stream", rateLimit({ limit: 60, windowMs: 60_000, scope: "turn" }), requireAuth, async (c) => {
   const { userId } = c.get("session");
-  const body = (await c.req.json().catch(() => ({}))) as {
-    conversationId?: string;
-    prompt?: string;
-    agent?: string;
-    model?: string;
-    effort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-    localModel?: string;
-  };
-
-  if (!body.prompt) {
-    return c.json({ error: { message: "prompt is required" } }, 400);
-  }
+  const input = await parseBody(c, turnBody);
 
   const owned = await db
     .select({ id: conversations.id, projectId: conversations.projectId })
     .from(conversations)
-    .where(and(eq(conversations.id, body.conversationId ?? ""), eq(conversations.userId, userId)))
+    .where(and(eq(conversations.id, input.conversationId), eq(conversations.userId, userId)))
     .limit(1);
 
   const conversation = owned[0];
@@ -83,11 +73,11 @@ turnStream.post("/api/turn/stream", rateLimit({ limit: 60, windowMs: 60_000, sco
             conversationId: conversation.id,
             projectId: project[0]?.id ?? conversation.projectId,
             userId,
-            prompt: body.prompt!,
-            agent: body.agent ?? "lolo",
-            model: body.model ?? "qwen3:8b",
-            effort: body.effort,
-            localModel: body.localModel,
+            prompt: input.prompt,
+            agent: input.agent,
+            model: input.model,
+            effort: input.effort,
+            localModel: input.localModel,
             stream: true,
           },
           send,

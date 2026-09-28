@@ -5,17 +5,90 @@
 // call sites changing — the middleware signature is the same either way.
 
 import type { Context, MiddlewareHandler } from "hono";
+import { env } from "../env";
 
 type Bucket = { count: number; resetAt: number };
 
 const buckets = new Map<string, Bucket>();
 
-// Keep the map from growing without bound on a long-lived process.
-function sweep(now: number): void {
-  if (buckets.size < 1000) return;
+/** Trusted proxy hops, empty when the server is exposed directly. */
+const TRUSTED_PROXIES = new Set(
+  env.TRUST_PROXY.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+const TRUST_ALL = env.TRUST_PROXY === "*" || env.TRUST_PROXY.toLowerCase() === "true";
+
+/**
+ * The address the socket actually came from.
+ *
+ * `c.env` is the Node `IncomingMessage` under @hono/node-server. When it is
+ * missing (tests, a different adapter) the result is `undefined` and the caller
+ * falls back to a shared key rather than trusting a header.
+ */
+function peerAddress(c: Context): string | undefined {
+  const env_ = c.env as { socket?: { remoteAddress?: string } } | undefined;
+  return env_?.socket?.remoteAddress ?? undefined;
+}
+
+function isTrustedProxy(address: string | undefined): boolean {
+  if (TRUST_ALL) return true;
+  if (!address) return false;
+  return TRUSTED_PROXIES.has(address);
+}
+
+/**
+ * Identifies the caller.
+ *
+ * `x-forwarded-for` is client-controlled, so it is only read when the immediate
+ * peer is a proxy we were told to trust. Without that check, anyone can rotate
+ * a header and walk straight past every limit here.
+ */
+export function clientIp(c: Context): string {
+  const peer = peerAddress(c);
+  if (!isTrustedProxy(peer)) return peer ?? "unknown";
+
+  return (
+    c.req.header("cf-connecting-ip") ??
+    c.req.header("x-real-ip") ??
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+    peer ??
+    "unknown"
+  );
+}
+
+/**
+ * Drops expired buckets, and if that was not enough, the oldest ones.
+ *
+ * Sweeping on a size trigger alone is not enough: a burst of unique clients can
+ * add thousands of live buckets between two sweeps, so eviction is unconditional
+ * once the map is over the cap.
+ */
+function evict(now: number): void {
   for (const [key, bucket] of buckets) {
     if (bucket.resetAt <= now) buckets.delete(key);
   }
+  if (buckets.size <= env.RATE_LIMIT_MAX_KEYS) return;
+
+  // Map iteration is insertion order, so the front is the oldest. Drop a tenth
+  // at a time rather than emptying it, which would let a flood reset every
+  // limit in one go.
+  let toDrop = Math.ceil(buckets.size / 10);
+  for (const key of buckets.keys()) {
+    if (toDrop-- <= 0) break;
+    buckets.delete(key);
+  }
+}
+
+/** Tracked bucket count. Exported so a test can assert the map stays bounded. */
+export function bucketCount(): number {
+  return buckets.size;
+}
+
+/** Drops all state. Between tests. */
+export function resetBuckets(): void {
+  buckets.clear();
 }
 
 export function rateLimit(opts: {
@@ -27,24 +100,19 @@ export function rateLimit(opts: {
   const scope = opts.scope ?? "default";
 
   return async (c: Context, next: Next) => {
-    const ip =
-      c.req.header("cf-connecting-ip") ??
-      c.req.header("x-real-ip") ??
-      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-      "local";
-
     const now = Date.now();
-    const key = `${scope}:${ip}`;
 
     // Behind a proxy the key must be the authenticated identity, not an IP a
-    // client can rotate.
+    // client can rotate. The suffix is enough to bucket a key without holding
+    // the secret itself.
     const bearer = c.req.header("authorization");
-    const actual = bearer ? `${scope}:key:${bearer.slice(-12)}` : key;
+    const key = bearer ? `${scope}:key:${bearer.slice(-12)}` : `${scope}:${clientIp(c)}`;
 
-    const bucket = buckets.get(actual);
+    if (buckets.size >= env.RATE_LIMIT_MAX_KEYS) evict(now);
+
+    const bucket = buckets.get(key);
     if (!bucket || bucket.resetAt <= now) {
-      sweep(now);
-      buckets.set(actual, { count: 1, resetAt: now + opts.windowMs });
+      buckets.set(key, { count: 1, resetAt: now + opts.windowMs });
       c.header("X-RateLimit-Limit", String(opts.limit));
       c.header("X-RateLimit-Remaining", String(opts.limit - 1));
       return next();

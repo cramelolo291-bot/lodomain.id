@@ -59,6 +59,18 @@ export const env = {
   MAX_ATTEMPTS: int("MAX_ATTEMPTS", 3),
   API_RATE_LIMIT: int("API_RATE_LIMIT", 600),
   API_RATE_WINDOW_MS: int("API_RATE_WINDOW_MS", 60_000),
+
+  /**
+   * Whether to believe `x-forwarded-for`. Off by default, and it must stay off
+   * unless a reverse proxy you control sits in front: the header is set by the
+   * client, so trusting it hands every rate limiter a spoofable identity.
+   * Set to a comma-separated allowlist of proxy IPs to trust only those hops.
+   */
+  TRUST_PROXY: optional("TRUST_PROXY", ""),
+  /** Hard cap on tracked rate-limit buckets, so the map cannot grow forever. */
+  RATE_LIMIT_MAX_KEYS: int("RATE_LIMIT_MAX_KEYS", 20_000),
+  /** debug | info | warn | error. Below info hides per-request lines. */
+  LOG_LEVEL: optional("LOG_LEVEL", "") as "debug" | "info" | "warn" | "error" | "",
 } as const;
 
 export const isProd = env.NODE_ENV === "production";
