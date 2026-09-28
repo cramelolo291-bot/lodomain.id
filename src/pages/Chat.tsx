@@ -1092,19 +1092,12 @@ export default function Chat() {
                             </Step>
                             <Step done>Screened 7 guardrail rules · clean</Step>
                             {m.latencyMs ? (
-                              <>
-                                {changes.length > 0 && (
-                                  <Step done>
-                                    Ran the typecheck · 0 errors
-                                  </Step>
-                                )}
-                                <Step done>
-                                  Done · {changes.length}{" "}
-                                  {changes.length === 1
-                                    ? "file changed"
-                                    : "files changed"}
-                                </Step>
-                              </>
+                              <Step done>
+                                Done · {changes.length}{" "}
+                                {changes.length === 1
+                                  ? "file changed"
+                                  : "files changed"}
+                              </Step>
                             ) : (
                               <Step running>Working…</Step>
                             )}
@@ -1153,7 +1146,6 @@ export default function Chat() {
                   <Step done>Screened 7 guardrail rules · clean</Step>
                   <Step running>Mapping the project…</Step>
                   <Step>Writing files…</Step>
-                  <Step>Typechecking…</Step>
                 </ul>
               )}
               <div ref={endRef} />

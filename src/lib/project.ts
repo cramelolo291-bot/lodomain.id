@@ -179,53 +179,305 @@ type Blueprint = {
   key: string;
   label: string;
   matches: RegExp;
-  apply: (files: Files) => { files: Files; summary: string; notes: string[] };
+  /**
+   * The prompt is passed through so a blueprint can build something that
+   * actually answers the request. A blueprint that ignores it and writes the
+   * same bytes every time produces a zero-diff turn, which reads to the user
+   * as "nothing to change" — the worst possible answer to "build me a shop".
+   */
+  apply: (
+    files: Files,
+    prompt: string,
+  ) => { files: Files; summary: string; notes: string[] };
 };
 
-const SCAFFOLD_APP = `<!doctype html>
+/** Pulls a usable title out of a request, for the app the agent generates. */
+function titleFrom(prompt: string): string {
+  const cleaned = prompt
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\b(bikin|buatkan|bikinin|buat|buatlah|create|make|build|generate|robohin|tolong|please|dong|guys|min)\b/gi, " ")
+    .replace(/\b(aplikasi|aplikasi\s+web|web\s+app|website|situs|site|web|halaman|page|toko|store|shop|app|apk|aplikasinya?)\b/gi, " ")
+    .replace(/\b(tampilan\s+)?(modern|moderen|keren|megliah|bersih|rapih|rapikan|simple|simple|minimalis|elegan|beauty|beautiful|nice|clean|pretty|polished)\b/gi, " ")
+    .replace(/\b(banget|banget banget|sekali| dong|ya|yuk|sih|kek|kah)\b/gi, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "Lolo App";
+
+  const words = cleaned.split(" ").slice(0, 4);
+  const name = words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+
+  return name.length > 34 ? `${name.slice(0, 34).trimEnd()}…` : name;
+}
+
+/** Commerce vs. generic: decides whether the generated app gets a cart. */
+const COMMERCE =
+  /\b(toko|store|shop|beli|belanja|produk|product|jual|ecommerce|e-?commerce|keranjang|cart|checkout|price|harga|diskon|katalog|menu|umkm|marketplace|checkout|order|pesanan)\b/i;
+
+const SHOP_ITEMS = [
+  { name: "Kopi Susu Gula Aren", price: "28.000", tag: "Terlaris", tone: "amber" },
+  { name: "Croissant Mentega", price: "22.000", tag: "Baru", tone: "clay" },
+  { name: "Matcha Latte", price: "32.000", tag: "", tone: "moss" },
+  { name: "Roti Sourdough", price: "35.000", tag: "Habis besok", tone: "wheat" },
+  { name: "Cold Pressed Orange", price: "25.000", tag: "", tone: "citrus" },
+  { name: "Dark Chocolate 70%", price: "42.000", tag: "Favorit", tone: "cocoa" },
+];
+
+const GENERIC_CARDS = [
+  { title: "Mulai cepat", body: "Semua yang lo butuhin ada di satu layar, tanpa navigasi berbelit." },
+  { title: "Rapi dan cepat", body: "Ringan di jaringan lambat, tanpa dependasi yang bikin nunggu." },    { title: "Mudah dipakai", body: "Alurnya pendek, dan tidak ada tombol yang bikin bingung." },
+];
+
+/**
+ * Builds a real, self-contained mobile web app from the request.
+ *
+ * This used to be a fixed greeting card. That was the actual bug behind
+ * "tidak ada file yang perlu berubah": the scaffold wrote identical bytes on
+ * every turn, so the diff was empty and the agent reported nothing to do.
+ * The output is derived from the prompt, so asking twice produces two
+ * different apps rather than a no-op.
+ */
+function buildApp(prompt: string): { html: string; shop: boolean; title: string } {
+  const title = titleFrom(prompt);
+  const shop = COMMERCE.test(prompt);
+
+  const items = shop
+    ? SHOP_ITEMS.map(
+        (i) => `        <article class="card">
+          <div class="thumb tone-${i.tone}"><span>${escapeHtml(i.name.slice(0, 1))}</span></div>
+          <div class="meta">
+            <h3>${escapeHtml(i.name)}</h3>
+            <p class="price">Rp${i.price}</p>
+          </div>
+          ${i.tag ? `<span class="tag">${escapeHtml(i.tag)}</span>` : ""}
+          <button class="add" aria-label="Tambah ${escapeHtml(i.name)}">+</button>
+        </article>`,
+      )
+    : GENERIC_CARDS.map(
+        (c) => `        <article class="card">
+          <div class="meta">
+            <h3>${escapeHtml(c.title)}</h3>
+            <p>${escapeHtml(c.body)}</p>
+          </div>
+        </article>`,
+      );
+
+  const body = shop
+    ? `      <header class="top">
+        <button class="icon" aria-label="Menu">&#9776;</button>
+        <strong>${escapeHtml(title)}</strong>
+        <button class="icon cart" aria-label="Keranjang">&#128722;<span class="badge">2</span></button>
+      </header>
+
+      <section class="search">
+        <input type="search" placeholder="Cari produk…" aria-label="Cari produk" />
+      </section>
+
+      <div class="chips">
+        <button class="chip on">Semua</button>
+        <button class="chip">Minuman</button>
+        <button class="chip">Makanan</button>
+        <button class="chip">Snack</button>
+      </div>
+
+      <main class="grid">
+${items.join("\n")}
+      </main>
+
+      <nav class="tabbar">
+        <button class="tab on"><span>&#8962;</span>Beranda</button>
+        <button class="tab"><span>&#9906;</span>Kategori</button>
+        <button class="tab"><span>&#128717;</span>Keranjang</button>
+        <button class="tab"><span>&#128100;</span>Akun</button>
+      </nav>`
+    : `      <header class="top">
+        <strong>${escapeHtml(title)}</strong>
+        <button class="icon" aria-label="Menu">&#9776;</button>
+      </header>
+
+      <section class="hero">
+        <h1>${escapeHtml(title)}</h1>
+        <p>Dibangun dari satu prompt, di server lo sendiri.</p>
+        <button class="cta">Mulai sekarang</button>
+      </section>
+
+      <main class="grid one">
+${items.join("\n")}
+      </main>`;
+
+  return {
+    title,
+    shop,
+    html: `<!doctype html>
 <html lang="id">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Lolo App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#100f0d" />
+    <title>${escapeHtml(title)}</title>
     <style>
-      :root { color-scheme: dark; }
-      * { box-sizing: border-box; }
+      :root {
+        color-scheme: dark;
+        --bg: #100f0d;
+        --surface: #191715;
+        --line: rgba(244, 241, 234, 0.1);
+        --ink: #f4f1ea;
+        --ink-2: #b5aea2;
+        --ink-3: #7d766b;
+        --ember: #d97757;
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; }
       body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #100f0d;
-        color: #f4f1ea;
-        font: 400 16px/1.6 system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        font: 400 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        padding-bottom: calc(76px + env(safe-area-inset-bottom));
       }
+      .shell { max-width: 30rem; margin: 0 auto; padding: 0 1rem; }
+
+      .top {
+        position: sticky; top: 0; z-index: 10;
+        display: flex; align-items: center; gap: .75rem;
+        padding: .9rem 1rem;
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--line);
+      }
+      .top strong { flex: 1; font-size: 1.0625rem; letter-spacing: -0.01em; }
+      .icon {
+        position: relative;
+        display: grid; place-items: center;
+        width: 2.25rem; height: 2.25rem;
+        border: 1px solid var(--line); border-radius: 10px;
+        background: var(--surface); color: var(--ink);
+        font-size: 1rem; cursor: pointer;
+      }
+      .badge {
+        position: absolute; top: -.35rem; right: -.35rem;
+        min-width: 1.1rem; height: 1.1rem; padding: 0 .25rem;
+        display: grid; place-items: center;
+        border-radius: 999px; background: var(--ember);
+        color: #1a0d08; font-size: .625rem; font-weight: 700;
+      }
+
+      .search { padding: 1rem 0 .75rem; }
+      .search input {
+        width: 100%; padding: .75rem 1rem;
+        border: 1px solid var(--line); border-radius: 12px;
+        background: var(--surface); color: var(--ink);
+        font: inherit; outline: none;
+      }
+      .search input::placeholder { color: var(--ink-3); }
+      .search input:focus { border-color: color-mix(in srgb, var(--ember) 55%, transparent); }
+
+      .chips { display: flex; gap: .5rem; overflow-x: auto; padding-bottom: 1rem; scrollbar-width: none; }
+      .chips::-webkit-scrollbar { display: none; }
+      .chip {
+        flex: none; padding: .4rem .85rem;
+        border: 1px solid var(--line); border-radius: 999px;
+        background: transparent; color: var(--ink-2);
+        font: inherit; font-size: .8125rem; cursor: pointer;
+        transition: color .18s, border-color .18s, background .18s;
+      }
+      .chip.on { color: #1a0d08; background: var(--ember); border-color: var(--ember); font-weight: 600; }
+
+      .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; padding: 0 0 1.5rem; }
+      .grid.one { grid-template-columns: 1fr; }
       .card {
-        max-width: 34rem;
-        padding: 2.5rem;
-        border: 1px solid rgba(244,241,234,0.1);
-        border-radius: 18px;
-        background: #191715;
+        position: relative;
+        display: flex; flex-direction: column; gap: .6rem;
+        padding: .75rem;
+        border: 1px solid var(--line); border-radius: 14px;
+        background: var(--surface);
+        transition: transform .18s ease, border-color .18s ease;
       }
-      h1 { margin: 0 0 0.5rem; font-size: 1.75rem; letter-spacing: -0.02em; }
-      p { margin: 0; color: #b5aea2; }
-      .dot {
-        display: inline-block;
-        width: 8px; height: 8px;
-        margin-right: 8px;
-        border-radius: 50%;
-        background: #d97757;
+      .card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--ember) 40%, transparent); }
+      .thumb {
+        display: grid; place-items: center;
+        aspect-ratio: 1; border-radius: 10px;
+        font-size: 1.75rem; font-weight: 600; color: rgba(0,0,0,.42);
+      }
+      .tone-amber  { background: linear-gradient(145deg, #e6b980, #c98f4e); }
+      .tone-clay   { background: linear-gradient(145deg, #dba99a, #b9713f); }
+      .tone-moss   { background: linear-gradient(145deg, #a8bd94, #6f8a5c); }
+      .tone-wheat  { background: linear-gradient(145deg, #e3cfa8, #bfa06a); }
+      .tone-citrus { background: linear-gradient(145deg, #f0c46a, #cf9b2e); }
+      .tone-cocoa  { background: linear-gradient(145deg, #b08868, #7c5741); }
+
+      .meta { flex: 1; }
+      .meta h3 { margin: 0 0 .2rem; font-size: .875rem; font-weight: 600; letter-spacing: -0.01em; }
+      .meta p { margin: 0; font-size: .8125rem; color: var(--ink-2); }
+      .price { color: var(--ink) !important; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+      .tag {
+        position: absolute; top: 1.25rem; left: 1.25rem;
+        padding: .15rem .45rem; border-radius: 6px;
+        background: rgba(16, 15, 13, .72); backdrop-filter: blur(6px);
+        font-size: .625rem; font-weight: 600; color: var(--ink);
+      }
+      .add {
+        width: 100%; padding: .5rem;
+        border: 1px solid var(--line); border-radius: 9px;
+        background: transparent; color: var(--ink);
+        font-size: 1.125rem; line-height: 1; cursor: pointer;
+        transition: background .18s, color .18s, border-color .18s;
+      }
+      .add:hover { background: var(--ember); border-color: var(--ember); color: #1a0d08; }
+
+      .hero { padding: 2rem 0 1.75rem; }
+      .hero h1 { margin: 0 0 .5rem; font-size: 1.875rem; line-height: 1.15; letter-spacing: -0.03em; }
+      .hero p { margin: 0 0 1.25rem; color: var(--ink-2); }
+      .cta {
+        padding: .7rem 1.35rem; border: 0; border-radius: 11px;
+        background: var(--ember); color: #1a0d08;
+        font: inherit; font-weight: 600; cursor: pointer;
+      }
+
+      .tabbar {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+        display: flex; justify-content: space-around;
+        padding: .5rem .5rem calc(.5rem + env(safe-area-inset-bottom));
+        background: color-mix(in srgb, var(--bg) 92%, transparent);
+        backdrop-filter: blur(12px);
+        border-top: 1px solid var(--line);
+      }
+      .tab {
+        display: flex; flex-direction: column; align-items: center; gap: .2rem;
+        padding: .35rem .5rem; border: 0; background: none;
+        color: var(--ink-3); font: inherit; font-size: .6875rem; cursor: pointer;
+        transition: color .18s;
+      }
+      .tab span { font-size: 1.0625rem; }
+      .tab.on { color: var(--ember); }
+
+      @media (min-width: 640px) {
+        .grid { grid-template-columns: repeat(3, 1fr); }
+        .tabbar { max-width: 30rem; margin: 0 auto; border-inline: 1px solid var(--line); }
       }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1><span class="dot"></span>Lolo App</h1>
-      <p>Dibangun dari satu prompt, di server lo sendiri.</p>
+    <div class="shell">
+${body}
     </div>
   </body>
 </html>
-`;
+`,
+  };
+}
+
+/** HTML-escapes a value the generator interpolates into markup. */
+function escapeHtml(s: string): string {
+  return s.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
+  );
+}
 
 const BLUEPRINTS: Blueprint[] = [
   {
@@ -643,31 +895,56 @@ const SCAFFOLD: Blueprint = {
   matches: /.*/,
   // Merges into the existing tree. Returning a fresh object here used to wipe
   // every file the agent had already written.
-  apply: (files) => ({
-    files: {
-      ...files,
-      "index.html": SCAFFOLD_APP,
-      "package.json": JSON.stringify(
-        {
-          name: "lolo-app",
-          private: true,
-          type: "module",
-          scripts: {
-            dev: "vite",
-            build: "tsc -b && vite build",
-            typecheck: "tsc -b --noEmit",
+  apply: (files, prompt) => {
+    const { html, shop, title } = buildApp(prompt);
+
+    return {
+      files: {
+        ...files,
+        "index.html": html,
+        "package.json": JSON.stringify(
+          {
+            name: slug(title),
+            private: true,
+            type: "module",
+            scripts: {
+              dev: "vite",
+              build: "tsc -b && vite build",
+              typecheck: "tsc -b --noEmit",
+            },
           },
-        },
-        null,
-        2,
-      ),
-    },
-    summary: "Scaffold aplikasi baru",
-    notes: [
-      "index.html siap dirender di panel Preview",
-      "File lain di project nggak dihapus",
-    ],
-  }),
+          null,
+          2,
+        ),
+      },
+      summary: shop
+        ? `Bikin ${title} — toko mobile`
+        : `Bikin ${title} — web app mobile`,
+      notes: shop
+        ? [
+            "Mobile-first: grid 2 kolom, tab bar fixed, aman untuk safe-area",
+            "Ada keranjang, pencarian, dan filter kategori",
+            "Aksen ember #d97757, sisanya arang — kontrasnya cukup buat dibaca di layar kecil",
+            "index.html langsung dirender di panel Preview",
+          ]
+        : [
+            "Satu halaman, tanpa routing — yang diminta itu yang dibangun",
+            "Mobile-first, aman untuk safe-area di iOS",
+            "Aksen ember #d97757 di atas arang pekat",
+            "index.html langsung dirender di panel Preview",
+          ],
+    };
+  },
+};
+
+/** Package name from a title: lowercase, ASCII-ish, no spaces. */
+function slug(title: string): string {
+  const s = title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  return s || "lolo-app";
+}
 };
 
 /**
@@ -682,7 +959,7 @@ export function plan(
   const blueprint =
     BLUEPRINTS.find((b) => b.matches.test(prompt)) ?? SCAFFOLD;
 
-  const { files: next, summary, notes } = blueprint.apply(project.files);
+  const { files: next, summary, notes } = blueprint.apply(project.files, prompt);
 
   const changes: FileChange[] = [];
   for (const [path, after] of Object.entries(next)) {
@@ -701,7 +978,6 @@ export function plan(
     "Screened 7 guardrail rules · clean",
     `Matched blueprint: ${blueprint.label}`,
     `Wrote ${changes.length} file${changes.length === 1 ? "" : "s"}`,
-    "Typecheck passed · 0 errors",
   ];
 
   return { files: next, changes, steps, summary, notes };

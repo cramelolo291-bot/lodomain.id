@@ -515,13 +515,13 @@ function renderReply(
 
   if (changes.length === 0) {
     return [
-      `Gw udah baca permintaannya — "${prompt.slice(0, 70)}…" — tapi nggak ada file yang perlu berubah.`,
+      `Gw udah baca permintaannya — "${prompt.slice(0, 70)}…" — tapi hasil yang dibangun identik sama dengan yang sudah ada di project, jadi nggak ada diff buat ditampilkan.`,
       "",
       "Isi project sekarang:",
       "",
       ...Object.keys(result.files).map((p) => `- \`${p}\``),
       "",
-      "Kalau lo mau nambah fitur, sebut tekniknya: rate limit, schema database, magic-link auth, atau model pool.",
+      "Kalau mau hasil yang beda, sebut lebih spesifik — nama, warna, halaman, atau fitur tertentu. Kalau emang mau nambah sesuatu ke kode yang sudah ada, sebut tekniknya: rate limit, schema database, magic-link auth, atau model pool.",
     ].join("\n");
   }
 
