@@ -107,10 +107,15 @@ export default function Web() {
 
   return (
     <AppShell>
-      <div className="mx-auto w-full max-w-[1100px] px-5 pb-24 pt-10 sm:px-8">
+      <div className="mx-auto w-full max-w-[1100px] px-5 pb-24 pt-12 sm:px-8 sm:pt-16">
         {/* Composer */}
         <div className="mx-auto max-w-[720px]">
-          <h1 className="font-display text-[clamp(30px,4.5vw,44px)] leading-[1.1] tracking-[-0.02em] text-ink-1">
+          <span className="mono-label flex items-center gap-2">
+            <span className="pulse-dot" />
+            workspace
+          </span>
+
+          <h1 className="display mt-5 text-[clamp(30px,4.5vw,44px)] text-ink-1">
             What do you want to build?
           </h1>
           <p className="mt-3 text-[15px] leading-relaxed text-ink-3">
@@ -118,7 +123,7 @@ export default function Web() {
             result on its own URL.
           </p>
 
-          <div className="mt-7 rounded-[16px] border border-border bg-surface-1 p-2 transition-colors focus-within:border-ember/40">
+          <div className="lift sheen mt-7 p-2 transition-colors focus-within:border-[rgba(var(--ember-rgb),0.4)]">
             <textarea
               ref={textarea}
               value={prompt}
@@ -134,8 +139,10 @@ export default function Web() {
               className="w-full resize-none bg-transparent px-3 py-2.5 text-[15px] leading-relaxed text-ink-1 outline-none placeholder:text-ink-4"
             />
             <div className="flex items-center gap-2 px-2 pb-1">
-              <span className="font-mono text-[10.5px] text-ink-4">
-                ⌘↵ to build
+              <span className="kbd">⌘</span>
+              <span className="kbd">↵</span>
+              <span className="ml-1 font-mono text-[10.5px] text-ink-4">
+                to build
               </span>
               <button
                 type="button"
@@ -156,7 +163,7 @@ export default function Web() {
                   key={s}
                   type="button"
                   onClick={() => setPrompt(s)}
-                  className="rounded-full border border-border px-3 py-1.5 text-[12.5px] text-ink-3 transition-colors hover:border-ember/40 hover:text-ink-1"
+                  className="btn-solid !px-3 !py-1.5 !text-[12.5px] !text-ink-3 hover:!text-ink-1"
                 >
                   {s}
                 </button>
@@ -166,21 +173,22 @@ export default function Web() {
         </div>
 
         {/* Projects */}
-        <div className="mt-16">
-          <div className="mb-4 flex items-baseline gap-3">
-            <h2 className="text-[13px] font-medium text-ink-2">Your projects</h2>
-            <span className="font-mono text-[11px] text-ink-4">
-              {sorted.length}
+        <div className="mt-20">
+          <div className="mb-5 flex items-baseline gap-3">
+            <span className="rule flex-1" />
+            <h2 className="mono-label">your projects</h2>
+            <span className="font-mono text-[11px] text-ink-4 tnum">
+              {String(sorted.length).padStart(2, "0")}
             </span>
           </div>
 
           {sorted.length === 0 ? (
-            <div className="rounded-[16px] border border-dashed border-border px-6 py-14 text-center">
-              <Globe className="mx-auto size-5 text-ink-4" />
-              <p className="mt-3 text-[14px] text-ink-2">
+            <div className="vignette overflow-hidden rounded-[16px] border border-dashed border-border px-6 py-16 text-center">
+              <Globe className="relative z-10 mx-auto size-5 text-ink-4" />
+              <p className="relative z-10 mt-3 text-[14px] text-ink-2">
                 Nothing built yet.
               </p>
-              <p className="mt-1.5 text-[13px] text-ink-4">
+              <p className="relative z-10 mt-1.5 text-[13px] text-ink-4">
                 Describe something above and it will show up here with its own
                 URL.
               </p>
@@ -191,14 +199,14 @@ export default function Web() {
                 <Link
                   key={p.id}
                   to={`/web/${p.id}`}
-                  className="group flex flex-col rounded-[14px] border border-border bg-surface-1 p-4 transition-colors hover:border-ember/35"
+                  className="lift sheen group flex flex-col p-4"
                 >
                   <div className="flex items-start gap-2.5">
-                    <Sparkles className="mt-0.5 size-3.5 shrink-0 text-ink-4" />
+                    <Sparkles className="mt-0.5 size-3.5 shrink-0 text-ink-4 transition-colors group-hover:text-ember" />
                     <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink-1">
                       {p.name}
                     </span>
-                    <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-ink-4 opacity-0 transition-opacity group-hover:opacity-100" />
+                    <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-ink-4 opacity-0 transition-all duration-300 group-hover:translate-x-0.5 group-hover:opacity-100" />
                   </div>
 
                   <span className="mt-3 flex items-center gap-1.5 truncate font-mono text-[11.5px] text-ink-3">
@@ -206,7 +214,7 @@ export default function Web() {
                     {p.url}
                   </span>
 
-                  <span className="mt-auto flex items-center gap-2 pt-4 font-mono text-[10.5px] text-ink-4">
+                  <span className="mt-auto flex items-center gap-2 pt-4 font-mono text-[10.5px] text-ink-4 tnum">
                     <Clock size={10.5} />
                     {timeAgo(p.updatedAt)}
                     {p.files > 0 && (
@@ -224,8 +232,8 @@ export default function Web() {
                 onClick={() => textarea.current?.focus()}
                 className={cn(
                   "flex min-h-[132px] flex-col items-center justify-center gap-2 rounded-[14px]",
-                  "border border-dashed border-border text-ink-4 transition-colors",
-                  "hover:border-ember/35 hover:text-ink-2",
+                  "border border-dashed border-border text-ink-4 transition-all duration-300",
+                  "hover:-translate-y-0.5 hover:border-[rgba(var(--ember-rgb),0.35)] hover:text-ink-2",
                 )}
               >
                 <Plus className="size-4" />

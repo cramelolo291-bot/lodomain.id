@@ -280,7 +280,7 @@ export default function Server() {
                 className={cn(
                   "rounded-full border px-3.5 py-1.5 font-mono text-[11px] transition-colors",
                   tab === t.key
-                    ? "border-ember/50 bg-ember-soft text-ember"
+                    ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
                     : "border-border text-ink-4 hover:border-[rgba(244,241,234,0.2)] hover:text-ink-2",
                 )}
               >

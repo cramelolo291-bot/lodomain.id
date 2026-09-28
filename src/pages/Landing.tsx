@@ -619,7 +619,7 @@ export default function Landing() {
       <footer className="hairline px-5 py-10">
         <div className="shell flex flex-wrap items-center justify-between gap-3">
           <span className="flex items-center gap-2.5 text-[12.5px] text-ink-4">
-            <Logo />
+            <Logo className="size-[19px]" />
             Lolo AI
           </span>
           <span className="font-mono text-[10px] tracking-[0.1em] text-ink-4 uppercase">

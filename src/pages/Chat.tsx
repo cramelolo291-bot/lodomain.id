@@ -1173,10 +1173,10 @@ export default function Chat() {
                   type="button"
                   onClick={() => setPane("preview")}
                   className={cn(
-                    "rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+                    "rounded-full border px-3 py-1 font-mono text-[11px] transition-colors",
                     pane === "preview"
-                      ? "bg-ember-soft text-ember"
-                      : "text-ink-4 hover:text-ink-2",
+                      ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
+                      : "border-transparent text-ink-4 hover:text-ink-2",
                   )}
                 >
                   Preview
@@ -1185,10 +1185,10 @@ export default function Chat() {
                   type="button"
                   onClick={() => setPane("file")}
                   className={cn(
-                    "rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+                    "rounded-full border px-3 py-1 font-mono text-[11px] transition-colors",
                     pane === "file"
-                      ? "bg-ember-soft text-ember"
-                      : "text-ink-4 hover:text-ink-2",
+                      ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
+                      : "border-transparent text-ink-4 hover:text-ink-2",
                   )}
                 >
                   Code · {paths.length}
@@ -1197,10 +1197,10 @@ export default function Chat() {
                   type="button"
                   onClick={() => setPane("data")}
                   className={cn(
-                    "rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+                    "rounded-full border px-3 py-1 font-mono text-[11px] transition-colors",
                     pane === "data"
-                      ? "bg-ember-soft text-ember"
-                      : "text-ink-4 hover:text-ink-2",
+                      ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
+                      : "border-transparent text-ink-4 hover:text-ink-2",
                   )}
                 >
                   Data
@@ -1209,10 +1209,10 @@ export default function Chat() {
                   type="button"
                   onClick={() => setPane("term")}
                   className={cn(
-                    "rounded-full px-3 py-1 font-mono text-[11px] transition-colors",
+                    "rounded-full border px-3 py-1 font-mono text-[11px] transition-colors",
                     pane === "term"
-                      ? "bg-ember-soft text-ember"
-                      : "text-ink-4 hover:text-ink-2",
+                      ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
+                      : "border-transparent text-ink-4 hover:text-ink-2",
                   )}
                 >
                   Terminal

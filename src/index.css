@@ -54,6 +54,9 @@
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-void: var(--bg-deep);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
 
   --font-sans: var(--font-ui);
   --font-serif: var(--font-display);
@@ -65,8 +68,11 @@
 :root {
   --radius: 0.875rem;
 
+  /* Four greys, plus a void underneath everything. The steps are close enough
+     to read as one material and far enough apart to survive a dim display. */
   --bg: #100f0d;
   --bg-2: #0a0908;
+  --bg-deep: #070706;
   --surface-1: #191715;
   --surface-2: #201e1b;
   --surface-3: #2b2824;
@@ -75,6 +81,13 @@
   --text-2: #b5aea2;
   --text-3: #837c70;
   --text-4: #5b554c;
+
+  /* Hairlines, not borders. A 1px rule at 7% white reads as an edge of a
+     material; at 20% it reads as a box someone drew. */
+  --line: rgba(244, 241, 234, 0.07);
+  --line-strong: rgba(244, 241, 234, 0.13);
+  /* The lit edge on top of a raised surface — what makes it read as solid. */
+  --spec: rgba(255, 255, 255, 0.055);
 
   --accent-warm: #d97757;
   --accent-warm-hover: #e2896a;
@@ -89,6 +102,7 @@
 
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --ease-cinema: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 
   --background: var(--bg);
   --foreground: var(--text-1);
@@ -140,7 +154,13 @@
     font: 400 15px/1.65 var(--font-ui);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01";
     overflow-x: hidden;
+  }
+  /* Numerals line up in tables and counters when they are all tabular. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
   }
   h1,
   h2,
@@ -156,6 +176,26 @@
     outline: 2px solid var(--accent-warm);
     outline-offset: 3px;
     border-radius: 4px;
+  }
+
+  /* Ambient light for every page. Three layers: a warm wash from above, a cool
+     sheen from the left so the wash is not the only thing moving, and a
+     vertical fall into the void. Fixed and behind everything, so scrolling
+     never reveals an edge. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        92% 62% at 50% -12%,
+        rgba(var(--ember-rgb), 0.085),
+        transparent 62%
+      ),
+      radial-gradient(58% 48% at 10% 6%, rgba(244, 241, 234, 0.022), transparent 60%),
+      linear-gradient(180deg, #0b0a09 0%, var(--bg) 42%, var(--bg-2) 100%);
   }
 }
 
@@ -369,6 +409,283 @@
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background: var(--surface-3);
     border-radius: 9999px;
+  }
+
+  /* ── The expensive-looking parts ──────────────────────────────────────
+     Nothing below introduces a colour. Every one of them is geometry: a lit
+     top edge, a hairline at 7% white, a shadow wide enough to imply thickness.
+     That is the difference between a surface and a rectangle. */
+
+  /* Frosted panel. The blur only earns its keep over a background that has
+     something in it, so pair it with `.glass` only over the ambient wash. */
+  .glass {
+    background: linear-gradient(
+      180deg,
+      rgba(244, 241, 234, 0.032),
+      rgba(244, 241, 234, 0.012) 42%,
+      rgba(244, 241, 234, 0.004)
+    );
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    backdrop-filter: blur(18px) saturate(120%);
+    -webkit-backdrop-filter: blur(18px) saturate(120%);
+  }
+
+  /* A raised surface: a 1px highlight along the top edge, then a shadow wide
+     and soft enough to sit under the card rather than around it. */
+  .lift {
+    position: relative;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow:
+      inset 0 1px 0 0 var(--spec),
+      0 1px 2px rgba(0, 0, 0, 0.4),
+      0 18px 40px -24px rgba(0, 0, 0, 0.9);
+    transition:
+      border-color 0.3s var(--ease),
+      transform 0.4s var(--ease-cinema),
+      box-shadow 0.4s var(--ease);
+  }
+  .lift:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+      0 2px 4px rgba(0, 0, 0, 0.4),
+      0 28px 60px -28px rgba(0, 0, 0, 0.95);
+  }
+
+  /* A gloss that crosses the surface once on hover. Slow enough to be felt
+     rather than noticed, and clipped to the card's own radius. */
+  .sheen {
+    position: relative;
+    overflow: hidden;
+  }
+  .sheen::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -60%;
+    width: 45%;
+    pointer-events: none;
+    background: linear-gradient(
+      100deg,
+      transparent,
+      rgba(255, 255, 255, 0.045),
+      transparent
+    );
+    transform: skewX(-14deg);
+    transition: left 0.75s var(--ease-cinema);
+  }
+  .sheen:hover::after,
+  .sheen:focus-within::after {
+    left: 115%;
+  }
+
+  /* Solid button. Near-black with a hairline, so it sits on the page instead of
+     punching a hole in it; the ember only appears once you commit to it. */
+  .btn-solid {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 20px;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+    border: 1px solid var(--line-strong);
+    box-shadow:
+      inset 0 1px 0 0 var(--spec),
+      0 1px 2px rgba(0, 0, 0, 0.45);
+    color: var(--text-1);
+    font: 500 14px/1 var(--font-ui);
+    white-space: nowrap;
+    transition:
+      border-color 0.25s var(--ease),
+      color 0.25s var(--ease),
+      transform 0.3s var(--ease-cinema);
+  }
+  .btn-solid:hover {
+    border-color: rgba(var(--ember-rgb), 0.45);
+    color: var(--text-1);
+    transform: translateY(-1px);
+  }
+  .btn-solid:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* Small caps label used above sections and inside dense panels. Tracking is
+     what makes 10px legible; the size alone never is. */
+  .mono-label {
+    font: 500 10px/1 var(--font-mono);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-4);
+  }
+
+  /* A number big enough to be the point of a card. Tabular so a live value
+     ticking up does not shuffle the layout. */
+  .stat-num {
+    font: 400 30px/1 var(--font-display);
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-1);
+  }
+
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 5px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-bottom-color: rgba(0, 0, 0, 0.5);
+    font: 500 10px/1 var(--font-mono);
+    color: var(--text-3);
+  }
+
+  /* Darkens the edges of a full-bleed area so a long page has a centre of
+     gravity instead of fading out flat at the bottom. */
+  .vignette {
+    position: relative;
+  }
+  .vignette::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(120% 80% at 50% 40%, transparent 40%, rgba(0, 0, 0, 0.55));
+  }
+
+  /* Live indicator. A single ember dot with a slow halo — the only place in
+     the app where the accent breathes. */
+  .pulse-dot {
+    position: relative;
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--accent-warm);
+  }
+  .pulse-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: var(--accent-warm);
+    animation: halo 2.6s var(--ease) infinite;
+  }
+  @keyframes halo {
+    0% {
+      opacity: 0.5;
+      transform: scale(1);
+    }
+    70%,
+    100% {
+      opacity: 0;
+      transform: scale(3.4);
+    }
+  }
+
+  /* The active rail in the app chrome: a 2px ember stub that slides, not a
+     filled pill. Quieter at rest, unmistakable when active. */
+  .rail-active {
+    position: relative;
+  }
+  .rail-active::before {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: 50%;
+    width: 2px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--accent-warm);
+    transform: translateY(-50%);
+  }
+
+  /* Caret for a terminal or a streaming token. */
+  .caret {
+    display: inline-block;
+    width: 7px;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    background: var(--accent-warm);
+    animation: blink 1.05s steps(2, start) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+}
+
+/* ── Opening sequence ───────────────────────────────────────────────────
+   Timings are in one place so the choreography can be read as a whole:
+   the mark lands, the wordmark follows it, the caption lands last, and the
+   rule fills across the entire sequence so the progress is the exit. */
+@keyframes intro-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+@keyframes intro-ring {
+  from {
+    stroke-dashoffset: 302;
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+@keyframes intro-letter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) rotateX(-40deg);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotateX(0deg);
+    filter: blur(0);
+  }
+}
+@keyframes intro-caption {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes intro-wipe {
+  from {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+  to {
+    clip-path: inset(0 0 100% 0);
+    opacity: 1;
   }
 }
 

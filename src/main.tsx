@@ -1,8 +1,9 @@
 import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { Intro, shouldPlay } from "@/components/Intro";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
-import React, { StrictMode, useEffect, lazy, Suspense } from "react";
+import React, { StrictMode, useCallback, useEffect, useState, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
@@ -21,6 +22,73 @@ function RouteLoading() {
         loading…
       </div>
     </div>
+  );
+}
+
+/**
+ * The app, held back by the opening sequence on the first paint of a session.
+ * The `key` matters: without it a route change would re-run the mount effects
+ * of everything below and the whole tree would remount mid-intro.
+ */
+function App() {
+  const [intro, setIntro] = useState(shouldPlay);
+  const skipIntro = useCallback(() => setIntro(false), []);
+
+  return (
+    <>
+      {intro && <Intro onDone={skipIntro} />}
+      <BrowserRouter>
+        <RouteSyncer />
+        <Suspense fallback={<RouteLoading />}>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/auth" element={<AuthPage redirectAfterAuth="/web" />} />
+            <Route
+              path="/chat"
+              element={
+                <RequireAuth>
+                  <Chat />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/chat/:id"
+              element={
+                <RequireAuth>
+                  <Chat />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/web"
+              element={
+                <RequireAuth>
+                  <Web />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/web/:id"
+              element={
+                <RequireAuth>
+                  <Chat />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/server"
+              element={
+                <RequireAuth>
+                  <Server />
+                </RequireAuth>
+              }
+            />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
+      <Toaster />
+    </>
   );
 }
 
@@ -106,57 +174,7 @@ createRoot(document.getElementById("root")!).render(
       <ToolbarErrorBoundary>
         <VlyToolbar />
       </ToolbarErrorBoundary>
-      <BrowserRouter>
-        <RouteSyncer />
-        <Suspense fallback={<RouteLoading />}>
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/auth" element={<AuthPage redirectAfterAuth="/web" />} />
-            <Route
-              path="/chat"
-              element={
-                <RequireAuth>
-                  <Chat />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/chat/:id"
-              element={
-                <RequireAuth>
-                  <Chat />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/web"
-              element={
-                <RequireAuth>
-                  <Web />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/web/:id"
-              element={
-                <RequireAuth>
-                  <Chat />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/server"
-              element={
-                <RequireAuth>
-                  <Server />
-                </RequireAuth>
-              }
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-      <Toaster />
+      <App />
     </RootErrorBoundary>
   </StrictMode>,
 );
