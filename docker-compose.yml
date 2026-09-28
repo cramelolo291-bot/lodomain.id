@@ -53,6 +53,44 @@ services:
       retries: 5
       start_period: 30s
 
+  # The product. Serves dist/, the API, and an OpenAI-compatible endpoint from
+  # one process, and applies migrations on boot.
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      # Optional: the stack boots without a .env, and falls back to printing
+      # magic links to the log instead of sending them.
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: "8787"
+      STATIC_DIR: dist
+      # Service names, not localhost — inside the compose network.
+      DATABASE_URL: postgres://lolo:lolo@db:5432/lolo
+      OLLAMA_URL: http://ollama:11434
+      # One migration step on boot. Convenient for one box; for a real deploy
+      # run `docker compose run --rm app bun run db:migrate` as its own step and
+      # set this to "false".
+      AUTO_MIGRATE: "true"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      # Set this to your reverse proxy's address once one is in front, or the
+      # rate limiter will see only the proxy.
+      TRUST_PROXY: "${TRUST_PROXY:-}"
+    ports:
+      # Loopback only. Put a TLS proxy in front of it rather than exposing this
+      # directly to the internet.
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - backups:/app/backups
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   db-data:
   ollama-models:
+  backups:

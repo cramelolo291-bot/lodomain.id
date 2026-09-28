@@ -126,7 +126,7 @@ function mountStatic(app: Hono) {
 
   // Hash-named assets are immutable and can be cached hard. index.html must
   // not be, or a deploy never reaches the browser.
-  app.use("/assets/*", async (c, next) => {
+  app.use("/assets/*", async (c) => {
     const path = c.req.path.replace(/^\/+/, "");
     try {
       const body = await readFile(join(dir, path));
@@ -134,7 +134,12 @@ function mountStatic(app: Hono) {
       c.header("content-type", contentType(path));
       return c.body(body as unknown as ArrayBuffer);
     } catch {
-      return next();
+      // A 404, deliberately — not `next()`. Falling through would hand the
+      // history-fallback shell to a request for a JavaScript file, and the
+      // browser would report `Unexpected token '<'` with nothing pointing at
+      // the missing asset. A stale HTML reference after a deploy is exactly
+      // when this happens, so it has to be legible.
+      return c.body("Not found", 404);
     }
   });
 

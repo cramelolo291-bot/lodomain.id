@@ -25,7 +25,8 @@
     "test:api": "tsx scripts/test-api.ts",
     "test:pipeline": "tsx scripts/test-pipeline.ts",
     "test:harden": "tsx scripts/test-harden.ts",
-    "test": "npm run test:data && npm run test:turn && npm run test:server && npm run test:schema && npm run test:sql && npm run test:api && npm run test:pipeline && npm run test:harden"
+    "test:static": "tsx scripts/test-static.ts",
+    "test": "npm run test:data && npm run test:turn && npm run test:server && npm run test:schema && npm run test:sql && npm run test:api && npm run test:pipeline && npm run test:harden && npm run test:static"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

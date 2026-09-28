@@ -10,4 +10,4 @@ dist
 # Database dumps
 *.sql.gz
 dump.sql
-src/convex/_generated
+backups/

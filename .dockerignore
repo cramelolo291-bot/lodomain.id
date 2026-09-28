@@ -1,0 +1,27 @@
+# Build context hygiene. Anything here is either secret, reproducible from a
+# command, or large enough to slow every layer.
+
+# Secrets. The image gets its configuration from the environment at run time,
+# never baked in.
+.env
+.env.*
+!.env.example
+
+# Reproducible from `bun run build`.
+dist
+
+# Dev noise.
+node_modules
+.git
+.gitignore
+*.log
+npm-debug.log*
+
+# Docker's own files, so the build context does not include the previous build.
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Test output and dumps.
+backups
+coverage
