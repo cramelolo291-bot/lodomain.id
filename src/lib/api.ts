@@ -23,6 +23,12 @@ import {
   type GuardrailCategory,
   type Severity,
 } from "./guardrails";
+import {
+  plan,
+  runCommand,
+  type FileChange,
+  type Project,
+} from "./project";
 
 // ── Shapes (identical to the future server's JSON) ─────────────────────────
 
@@ -155,9 +161,11 @@ export type GatewayInfo = {
 export type RouteDef = { method: string; path: string; note: string };
 
 export type TurnResult =
-  | { status: "ok"; traceId: string }
+  | { status: "ok"; traceId: string; changes: FileChange[]; summary: string }
   | { status: "blocked"; guardrail: GuardrailCategory }
   | { status: "error"; reason: string };
+
+export type CommandResult = { out: string[]; code: number };
 
 // ── Mock backend ──────────────────────────────────────────────────────────
 
@@ -174,6 +182,7 @@ type MockState = {
   traces: Trace[];
   findings: Finding[];
   keys: ApiKey[];
+  project: Project;
 };
 
 function seed(): MockState {
@@ -333,6 +342,23 @@ function seed(): MockState {
         revoked: true,
       },
     ],
+    project: {
+      name: "lolo-app",
+      files: {
+        "package.json": `{
+  "name": "lolo-app",
+  "private": true,
+  "type": "module"
+}`,
+        "server/index.ts": `import { Hono } from "hono";
+
+const app = new Hono();
+
+app.get("/healthz", (c) => c.json({ status: "ok" }));
+
+export default app;`,
+      },
+    },
   };
 }
 
@@ -416,6 +442,57 @@ const REPLIES: Record<string, (prompt: string) => string> = {
     `Yang paling saya khawatirin bukan poin di atas — itu semua yang sudah lo tangani. Yang belum ada: **nggak ada cara tahu kalau saya sendiri lagi di-inject.** Itu butuh judge terpisah, bukan agent yang sama yang lagi diperiksa.`,
 };
 
+/** Closing commentary, per specialist. Kept short: the diff is the answer. */
+const CLOSING: Record<string, string> = {
+  lolo: "Semua perubahan ada di tab **Changes**. Kalau ada yang belum sesuai, sebut file-nya dan gue ubah bagian itu saja.",
+  scout: "Gw petakan dulu sebelum ngubah: server/db dipakai buat koneksi, server/routes buat handler. Kalau nanti nambah endpoint baru, polanya sama.",
+  forge: "Perubahan paling kecil yang bener. Kalau ada requirement yang belum gue tangani, sebut — jangan nebak.",
+  redteam: "Yang gue cokot di diff ini: path `chat.ts` masih menerima body tanpa validasi. Kalau lo expose endpoint ini, itu celah pertama yang orang tembak.",
+};
+
+/** Builds the reply from the real plan, not a canned blob. */
+function renderReply(
+  result: ReturnType<typeof plan>,
+  prompt: string,
+  agentKey: string,
+): string {
+  const { changes, summary, notes } = result;
+
+  if (changes.length === 0) {
+    return [
+      `Gw udah baca permintaannya — "${prompt.slice(0, 70)}…" — tapi nggak ada file yang perlu berubah.`,
+      "",
+      "Isi project sekarang:",
+      "",
+      ...Object.keys(result.files)
+        .slice(0, 8)
+        .map((p) => `- \`${p}\``),
+      "",
+      "Kalau lo mau nambah fitur, sebut tekniknya: rate limit, schema database, magic-link auth, atau model pool.",
+    ].join("\n");
+  }
+
+  const created = changes.filter((c) => c.op === "created");
+  const modified = changes.filter((c) => c.op === "modified");
+
+  return [
+    `${summary}.`,
+    "",
+    created.length > 0
+      ? `**Dibuat** (${created.length})\n${created.map((c) => `- \`${c.path}\``).join("\n")}`
+      : "",
+    modified.length > 0
+      ? `**Diubah** (${modified.length})\n${modified.map((c) => `- \`${c.path}\``).join("\n")}`
+      : "",
+    "",
+    ...notes.map((n) => `- ${n}`),
+    "",
+    CLOSING[agentKey] ?? "",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
 /** Highest effort the chosen model actually accepts. */
 function effortFor(id: string, wanted: Effort | undefined): Effort | undefined {
   const model = getModel(id);
@@ -492,6 +569,19 @@ function mockApi() {
       return state.messages
         .filter((m) => m.conversationId === conversationId)
         .sort((a, b) => a.createdAt - b.createdAt);
+    },
+
+    async getProject(): Promise<Project> {
+      return state.project;
+    },
+
+    async runCommand(cmd: string): Promise<CommandResult> {
+      return runCommand(cmd, state.project);
+    },
+
+    async resetProject(): Promise<void> {
+      state.project = seed().project;
+      commit();
     },
 
     async pool(): Promise<{ accounts: PoolAccount[]; summary: PoolSummary }> {
@@ -753,18 +843,24 @@ function mockApi() {
       account.inFlight += 1;
       push("pool", `claimed ${account.label}`, 3, "ok");
 
+      // 4 — do the work: mutate the real project tree
+      const result = plan(args.prompt, state.project, getAgent(args.agent));
+      state.project = { ...state.project, files: result.files };
+
+      for (const s of result.steps.slice(2)) {
+        push("work", s, Math.round(60 + Math.random() * 180), "ok");
+      }
       const genMs = 1800 + Math.min(4200, args.prompt.length * 9);
       push("upstream", `${args.prompt.length} chars in · keepalive 45s`, genMs, "ok");
       await wait(700);
 
-      // 4 — settle
+      // 5 — settle
       account.inFlight = Math.max(0, account.inFlight - 1);
       account.successes += 1;
       account.health = Math.min(100, account.health + 1);
       account.lastUsedAt = Date.now();
 
-      const replyFn = REPLIES[args.agent] ?? REPLIES.lolo!;
-      const body = replyFn(args.prompt);
+      const body = renderReply(result, args.prompt, args.agent);
       const tokensIn = 380 + args.prompt.length;
       const tokensOut = 120 + body.length;
 
@@ -795,7 +891,12 @@ function mockApi() {
         steps,
       });
       commit();
-      return { status: "ok", traceId: `t${Date.now()}` };
+      return {
+        status: "ok",
+        traceId: `t${Date.now()}`,
+        changes: result.changes,
+        summary: result.summary,
+      };
     },
   };
 }
@@ -836,6 +937,9 @@ function httpApi() {
       send<void>(`/api/conversations/${id}`, "PATCH", patch),
     deleteConversation: (id: string) => send<void>(`/api/conversations/${id}`, "DELETE"),
     listMessages: (id: string) => get<Message[]>(`/api/conversations/${id}/messages`),
+    getProject: () => get<Project>("/api/project"),
+    runCommand: (cmd: string) => send<CommandResult>("/api/terminal", "POST", { cmd }),
+    resetProject: () => send<void>("/api/project", "DELETE"),
     pool: () => get<{ accounts: PoolAccount[]; summary: PoolSummary }>("/api/pool"),
     setAccountStatus: (id: string, status: "healthy" | "disabled") =>
       send<void>(`/api/pool/${id}`, "PATCH", { status }),

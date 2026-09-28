@@ -1,6 +1,14 @@
 import { AppShell } from "@/components/AppShell";
 import { api, AGENTS, MODELS, getAgent, getModel } from "@/lib/api";
 import { GUARDRAIL_LABELS } from "@/lib/guardrails";
+import {
+  diffLines,
+  diffStats,
+  langOf,
+  previewHtml,
+  type FileChange,
+  type Project,
+} from "@/lib/project";
 import { cn } from "@/lib/utils";
 import {
   ArrowUp,
@@ -8,8 +16,12 @@ import {
   ChevronDown,
   Copy,
   FileCode2,
+  FileJson,
+  FileText,
+  Folder,
   GitBranch,
   Loader2,
+  Monitor,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -31,11 +43,21 @@ const PANELS: Array<{ key: Panel; label: string }> = [
 ];
 
 const SUGGESTIONS = [
-  "Bikin skema Postgres untuk gateway agent multi-user",
+  "Bikin aplikasi web baru",
   "Tambah rate limiting ke endpoint chat",
-  "Audit guardrail rules kita, ada yang bolong?",
-  "Jelaskan cara pool milih akun yang sehat",
+  "Bikin skema Postgres untuk gateway",
+  "Tambah magic-link authentication",
+  "Bikin model pool dengan health scoring",
 ];
+
+const FILE_ICON: Record<string, typeof FileCode2> = {
+  typescript: FileCode2,
+  javascript: FileCode2,
+  json: FileJson,
+  html: FileText,
+  css: FileText,
+  sql: FileText,
+};
 
 /** Minimal markdown with fenced blocks. */
 function renderBody(text: string) {
@@ -107,63 +129,64 @@ function renderBody(text: string) {
   });
 }
 
-function DiffRow({
-  kind,
-  n,
-  text,
-}: {
-  kind: "+" | "-" | " ";
-  n: number;
-  text: string;
-}) {
+function DiffView({ change }: { change: FileChange }) {
+  const rows = useMemo(
+    () => diffLines(change.before ?? "", change.after),
+    [change],
+  );
+  const { added, removed } = diffStats(rows);
+  const Icon = FILE_ICON[langOf(change.path)] ?? FileCode2;
+
   return (
-    <div
-      className={cn(
-        "grid grid-cols-[30px_24px_1fr] font-mono text-[11.5px] leading-[1.75]",
-        kind === "+" && "bg-[rgba(74,160,110,0.10)]",
-        kind === "-" && "bg-[rgba(200,90,80,0.10)]",
-      )}
-    >
-      <span className="select-none pr-2 text-right text-ink-4/50">
-        {kind === "+" ? "" : n}
-      </span>
-      <span
-        className={cn(
-          "select-none text-center",
-          kind === "+"
-            ? "text-[#4aa06e]"
-            : kind === "-"
-              ? "text-[#c85a50]"
-              : "text-ink-4/50",
-        )}
-      >
-        {kind}
-      </span>
-      <span className="whitespace-pre-wrap break-words text-ink-2">{text}</span>
+    <div className="border-b border-border last:border-0">
+      <div className="sticky top-0 flex items-center gap-2 border-b border-border bg-[var(--bg-2)] px-4 py-2 font-mono text-[11px]">
+        <Icon className="size-3.5 shrink-0 text-ink-4" />
+        <span className="truncate text-ink-2">{change.path}</span>
+        <span
+          className={cn(
+            "shrink-0 rounded px-1.5 py-0.5 text-[9.5px] uppercase",
+            change.op === "created"
+              ? "bg-[rgba(74,160,110,0.14)] text-[#4aa06e]"
+              : "bg-ember-soft text-ember",
+          )}
+        >
+          {change.op}
+        </span>
+        <span className="ml-auto shrink-0 text-[#4aa06e]">+{added}</span>
+        <span className="shrink-0 text-[#c85a50]">−{removed}</span>
+      </div>
+      <div className="scrollbar-thin max-h-72 overflow-auto">
+        {rows.map((r, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex font-mono text-[11.5px] leading-[1.75]",
+              r.kind === "+" && "bg-[rgba(74,160,110,0.10)]",
+              r.kind === "-" && "bg-[rgba(200,90,80,0.10)]",
+            )}
+          >
+            <span
+              className={cn(
+                "w-5 shrink-0 select-none pl-2 text-center",
+                r.kind === "+"
+                  ? "text-[#4aa06e]"
+                  : r.kind === "-"
+                    ? "text-[#c85a50]"
+                    : "text-ink-4/40",
+              )}
+            >
+              {r.kind === " " ? "" : r.kind}
+            </span>
+            <span className="whitespace-pre-wrap break-words px-2 text-ink-2">
+              {r.text}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-const SAMPLE_DIFF = {
-  path: "server/routes/chat.ts",
-  rows: [
-    { kind: "-" as const, n: 12, text: "export async function POST(req: Request) {" },
-    { kind: "-" as const, n: 13, text: "  const body = await req.json()" },
-    { kind: "-" as const, n: 14, text: "  return runTurn(body)" },
-    { kind: "+" as const, n: 12, text: "export async function POST(req: Request) {" },
-    { kind: "+" as const, n: 13, text: "  const body = await req.json()" },
-    { kind: "+" as const, n: 14, text: "  const session = await requireSession(req)" },
-    { kind: "+" as const, n: 15, text: "" },
-    { kind: "+" as const, n: 16, text: "  const finding = screen(body.prompt)" },
-    { kind: "+" as const, n: 17, text: "  if (finding) return blocked(finding)" },
-    { kind: "+" as const, n: 18, text: "" },
-    { kind: "+" as const, n: 19, text: "  const account = await claimSlot()" },
-    { kind: "+" as const, n: 20, text: "  return streamTurn(account, session)" },
-    { kind: " " as const, n: 21, text: "}" },
-  ],
-};
-
-/** One line of the agent's progress report, the way a CLI prints it. */
 function Step({
   done = false,
   running = false,
@@ -182,9 +205,7 @@ function Step({
       ) : (
         <span className="mt-[7px] size-1 shrink-0 rounded-full bg-ink-4/40" />
       )}
-      <span className={cn(done || running ? "text-ink-3" : undefined)}>
-        {children}
-      </span>
+      <span className={done || running ? "text-ink-3" : undefined}>{children}</span>
     </li>
   );
 }
@@ -200,6 +221,10 @@ export default function Chat() {
   const [messages, setMessages] = useState<
     Awaited<ReturnType<typeof api.listMessages>>
   >([]);
+  const [project, setProject] = useState<Project | null>(null);
+  const [changes, setChanges] = useState<FileChange[]>([]);
+  const [openFile, setOpenFile] = useState<string | null>(null);
+
   const [agent, setAgent] = useState("lolo");
   const [model, setModel] = useState(MODELS[0]!.id);
   const [effort, setEffort] = useState("");
@@ -211,7 +236,12 @@ export default function Chat() {
   const [agentMenu, setAgentMenu] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  /** Reveals the newest assistant reply character by character. */
+  const [termLines, setTermLines] = useState<string[]>([
+    "$ bun run dev",
+    "listening on 3000 · postgres connected",
+  ]);
+  const [termInput, setTermInput] = useState("");
+
   const [revealId, setRevealId] = useState<string | null>(null);
   const [revealChars, setRevealChars] = useState(0);
 
@@ -221,11 +251,27 @@ export default function Chat() {
   const rafRef = useRef<number | null>(null);
 
   const activeModel = useMemo(() => getModel(model), [model]);
+  const paths = useMemo(
+    () => (project ? Object.keys(project.files).sort() : []),
+    [project],
+  );
+  const preview = useMemo(
+    () => (project ? previewHtml(project) : null),
+    [project],
+  );
+  const changeTotal = useMemo(
+    () => changes.map((c) => diffStats(diffLines(c.before ?? "", c.after))),
+    [changes],
+  );
 
   useEffect(() => {
     void (async () => {
-      const rows = await api.listConversations();
+      const [rows, proj] = await Promise.all([
+        api.listConversations(),
+        api.getProject(),
+      ]);
       setConversations(rows);
+      setProject(proj);
       const target = id ?? rows[0]?.id;
       if (!target) return;
       setActiveId(target);
@@ -238,16 +284,14 @@ export default function Chat() {
     })();
   }, [id]);
 
-  // Keep the newest content in view as it streams or arrives.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 220;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 220) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages, revealChars, busy]);
 
-  /** Types a message out, so a reply visibly arrives instead of snapping in. */
   const stream = useCallback((messageId: string, text: string) => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     setRevealId(messageId);
@@ -262,7 +306,6 @@ export default function Chat() {
       return;
     }
 
-    // ~90 chars a second, with a floor so short replies still feel deliberate.
     const perFrame = Math.max(1.6, text.length / 150);
     let shown = 0;
     const tick = () => {
@@ -279,9 +322,12 @@ export default function Chat() {
     rafRef.current = requestAnimationFrame(tick);
   }, []);
 
-  useEffect(() => () => {
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    },
+    [],
+  );
 
   const openConversation = useCallback(
     async (target: string) => {
@@ -305,6 +351,7 @@ export default function Chat() {
     setConversations(await api.listConversations());
     setActiveId(c.id);
     setMessages([]);
+    setChanges([]);
     setRevealId(null);
     setRailOpen(false);
     navigate(`/chat/${c.id}`, { replace: true });
@@ -315,10 +362,20 @@ export default function Chat() {
     async (prompt: string, target: string) => {
       setBusy(true);
       try {
-        await api.runTurn({ conversationId: target, prompt, agent, model });
+        const result = await api.runTurn({
+          conversationId: target,
+          prompt,
+          agent,
+          model,
+        });
+        if (result.status === "ok") setChanges(result.changes);
       } finally {
-        const fresh = await api.listMessages(target);
+        const [fresh, proj] = await Promise.all([
+          api.listMessages(target),
+          api.getProject(),
+        ]);
         setMessages(fresh);
+        setProject(proj);
         setConversations(await api.listConversations());
         setBusy(false);
 
@@ -331,8 +388,6 @@ export default function Chat() {
 
   const send = useCallback(async () => {
     const prompt = draft.trim();
-    // Also block while a reply is still being typed out, so a second turn
-    // cannot interleave with the reveal of the first.
     if (!prompt || busy || revealId) return;
 
     let target = activeId;
@@ -391,6 +446,19 @@ export default function Chat() {
     [activeId, navigate, openConversation],
   );
 
+  const runTerm = useCallback(
+    async (cmd: string) => {
+      const res = await api.runCommand(cmd);
+      setTermLines((prev) => [
+        ...prev,
+        `$ ${cmd}`,
+        ...res.out,
+        ...(res.code === 0 ? [] : [`exit ${res.code}`]),
+      ]);
+    },
+    [],
+  );
+
   const pickAgent = (key: string) => {
     setAgent(key);
     setAgentMenu(false);
@@ -404,19 +472,15 @@ export default function Chat() {
     if (activeId) void api.updateConversation(activeId, { model: id });
   };
 
-  const copy = (id: string, text: string) => {
+  const copy = (mid: string, text: string) => {
     void navigator.clipboard?.writeText(text);
-    setCopiedId(id);
+    setCopiedId(mid);
     setTimeout(() => setCopiedId(null), 1600);
   };
 
-  const lastAssistant = [...messages]
-    .reverse()
-    .find((m) => m.role === "assistant");
-
   return (
     <AppShell>
-      <div className="mx-auto flex h-full max-w-[1680px] gap-3 px-3 pt-3 sm:px-5 sm:pt-4">
+      <div className="mx-auto flex h-full max-w-[1720px] gap-3 px-3 pt-3 sm:px-5 sm:pt-4">
         {/* Runs rail */}
         <aside
           className={cn(
@@ -487,6 +551,9 @@ export default function Chat() {
                 <GitBranch className="size-3" />
                 {WORKSPACE.branch}
               </span>
+              <span className="hidden shrink-0 font-mono text-[10.5px] text-ink-4 sm:inline">
+                {paths.length} files
+              </span>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <span className="tag tag-quiet">
@@ -508,15 +575,15 @@ export default function Chat() {
           >
             <div className="mx-auto w-full max-w-[880px]">
               {messages.length === 0 && (
-                <div className="flex min-h-full flex-col items-center justify-center py-10 text-center">
+                <div className="flex min-h-full flex-col items-center justify-center py-8 text-center">
                   <h1 className="display text-[36px] leading-[1.1] text-ink-1 sm:text-[48px]">
-                    Apa yang mau
+                    Bilang aja mau
                     <br />
-                    lo kerjakan?
+                    bikin apa.
                   </h1>
                   <p className="mt-5 max-w-[46ch] text-[15.5px] leading-[1.75] text-ink-2">
-                    Lolo memetakan dulu, lalu mengubah, lalu menjalankan check.
-                    Semua langkahnya kelihatan — dan bisa dilacak di tab Trace.
+                    Agent akan memetakan dulu, nulis filenya, nge-typecheck, lalu
+                    nampilin diff-nya di panel Changes. Preview-nya jalan beneran.
                   </p>
                   <div className="mt-8 flex flex-wrap justify-center gap-2">
                     {SUGGESTIONS.map((s) => (
@@ -627,23 +694,15 @@ export default function Chat() {
                       {!isUser && !m.blocked && (
                         <>
                           <ul className="mt-4 space-y-1.5">
-                            <Step done>
-                              Read the request · {who.name} dispatched
-                            </Step>
-                            <Step done>
-                              Screened 7 guardrail rules · clean
-                            </Step>
-                            <Step done>
-                              Claimed a pool slot ·{" "}
-                              {m.model?.split("/")[0] ?? "pool"}
-                            </Step>
+                            <Step done>Read the request · {who.name} dispatched</Step>
+                            <Step done>Screened 7 guardrail rules · clean</Step>
                             {m.latencyMs ? (
                               <Step done>
                                 Done · {(m.latencyMs / 1000).toFixed(1)}s · ↑
                                 {m.tokensIn ?? 0} ↓{m.tokensOut ?? 0} tokens
                               </Step>
                             ) : (
-                              <Step running>Generating…</Step>
+                              <Step running>Working…</Step>
                             )}
                           </ul>
 
@@ -682,8 +741,9 @@ export default function Chat() {
                 <ul className="mt-9 space-y-2">
                   <Step done>Read the request · {getAgent(agent).name} dispatched</Step>
                   <Step done>Screened 7 guardrail rules · clean</Step>
-                  <Step running>Claiming a pool slot…</Step>
-                  <Step>Generating…</Step>
+                  <Step running>Mapping the project…</Step>
+                  <Step>Writing files…</Step>
+                  <Step>Typechecking…</Step>
                 </ul>
               )}
               <div ref={endRef} />
@@ -704,9 +764,9 @@ export default function Chat() {
                   )}
                 >
                   {p.label}
-                  {p.key === "changes" && (
+                  {p.key === "changes" && changes.length > 0 && (
                     <span className="ml-1.5 rounded-full bg-ember-soft px-1.5 py-0.5 font-mono text-[9.5px] text-ember">
-                      1
+                      {changes.length}
                     </span>
                   )}
                   {panel === p.key && (
@@ -716,42 +776,144 @@ export default function Chat() {
               ))}
             </div>
 
-            {(panel === "code" || panel === "changes") && (
-              <div className="scrollbar-thin max-h-64 overflow-y-auto border-b border-border bg-[var(--bg-2)]">
-                <div className="sticky top-0 flex items-center gap-2 border-b border-border bg-[var(--bg-2)] px-4 py-2 font-mono text-[11px] text-ink-3">
-                  <FileCode2 className="size-3.5 shrink-0" />
-                  <span className="truncate">{SAMPLE_DIFF.path}</span>
-                  <span className="ml-auto shrink-0 text-ink-4">
-                    +7 −3
-                  </span>
-                </div>
-                {SAMPLE_DIFF.rows.map((r, i) => (
-                  <DiffRow key={i} kind={r.kind} n={r.n} text={r.text} />
-                ))}
-              </div>
-            )}
-
-            {panel === "terminal" && (
-              <div className="scrollbar-thin max-h-56 overflow-y-auto border-b border-border bg-[var(--bg-2)] p-4 font-mono text-[11.5px] leading-[1.9] text-ink-3">
-                <p>
-                  <span className="text-ink-4">$</span> bun run dev
-                </p>
-                <p className="text-ink-4">$ tsc -b --noEmit</p>
-                <p className="text-[#4aa06e]">✓ 0 errors</p>
-                <p>
-                  <span className="text-ink-4">$</span> node server/index.ts
-                </p>
-                <p className="text-ink-4">
-                  listening on {WORKSPACE.port} · postgres connected · pool 5
-                  accounts
-                </p>
-              </div>
-            )}
-
+            {/* Preview — renders the project's real index.html */}
             {panel === "preview" && (
-              <div className="flex items-center gap-2 border-b border-border bg-[var(--bg-2)] px-4 py-2.5 font-mono text-[11px] text-ink-4">
-                <span className="size-1.5 rounded-full bg-ember" />
-                dev server on :{WORKSPACE.port} — belum ada preview
+              <div className="relative h-64 border-b border-border bg-[var(--bg-2)]">
+                {preview ? (
+                  <iframe
+                    title="Preview"
+                    srcDoc={preview}
+                    sandbox="allow-scripts"
+                    className="h-full w-full border-0"
+                  />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                    <Monitor className="size-5 text-ink-4" />
+                    <p className="text-[13px] text-ink-3">
+                      Belum ada yang bisa dirender.
+                    </p>
+                    <p className="max-w-[36ch] text-[12px] leading-relaxed text-ink-4">
+                      Minta agent bikin aplikasi web, dan file{" "}
+                      <code className="font-mono text-ink-3">index.html</code>{" "}
+                      akan muncul di sini.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Code — real file tree + real file contents */}
+            {panel === "code" && (
+              <div className="grid h-64 grid-cols-[minmax(160px,240px)_1fr] border-b border-border">
+                <div className="scrollbar-thin overflow-y-auto border-r border-border py-1.5">
+                  {paths.length === 0 && (
+                    <p className="px-3 py-2 text-[12px] text-ink-4">
+                      project kosong
+                    </p>
+                  )}
+                  {paths.map((p) => {
+                    const Icon = FILE_ICON[langOf(p)] ?? FileCode2;
+                    const created = changes.find((c) => c.path === p);
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setOpenFile(p)}
+                        className={cn(
+                          "flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11.5px] transition-colors",
+                          openFile === p
+                            ? "bg-ember-soft text-ink-1"
+                            : "text-ink-3 hover:bg-surface-2",
+                        )}
+                      >
+                        <Icon className="size-3.5 shrink-0 text-ink-4" />
+                        <span className="truncate">{p.split("/").pop()}</span>
+                        {created && (
+                          <span className="ml-auto size-1.5 shrink-0 rounded-full bg-ember" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <pre className="scrollbar-thin overflow-auto bg-[var(--bg-2)] p-4 font-mono text-[11.5px] leading-[1.75] text-ink-2">
+                  {openFile && project?.files[openFile]
+                    ? project.files[openFile]
+                    : "Pilih file di kiri."}
+                </pre>
+              </div>
+            )}
+
+            {/* Terminal — real commands against the real tree */}
+            {panel === "terminal" && (
+              <div className="flex h-64 flex-col border-b border-border bg-[var(--bg-2)]">
+                <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4 font-mono text-[11.5px] leading-[1.9] text-ink-3">
+                  {termLines.map((l, i) => (
+                    <p
+                      key={i}
+                      className={cn(
+                        l.startsWith("$") ? "text-ink-2" : undefined,
+                        l.startsWith("exit") || l.includes("No such")
+                          ? "text-[#c85a50]"
+                          : l.startsWith("✓") || l.includes("  ")
+                          ? "text-[#4aa06e]"
+                          : undefined,
+                      )}
+                    >
+                      {l}
+                    </p>
+                  ))}
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const cmd = termInput.trim();
+                    if (!cmd) return;
+                    setTermInput("");
+                    void runTerm(cmd);
+                  }}
+                  className="flex items-center gap-2 border-t border-border px-4 py-2"
+                >
+                  <span className="font-mono text-[11.5px] text-ember">$</span>
+                  <input
+                    value={termInput}
+                    onChange={(e) => setTermInput(e.target.value)}
+                    placeholder="ls -R · cat server/index.ts · wc · tsc"
+                    className="flex-1 bg-transparent font-mono text-[11.5px] text-ink-2 outline-none placeholder:text-ink-4"
+                  />
+                  <span className="hidden font-mono text-[10px] text-ink-4 sm:inline">
+                    ls · cat · wc · tsc
+                  </span>
+                </form>
+              </div>
+            )}
+
+            {/* Changes — real diffs of what the agent just wrote */}
+            {panel === "changes" && (
+              <div className="scrollbar-thin h-64 overflow-y-auto border-b border-border bg-[var(--bg-2)]">
+                {changes.length === 0 ? (
+                  <p className="p-6 text-center text-[13px] text-ink-4">
+                    Belum ada perubahan. Kirim satu prompt, lalu diff-nya muncul
+                    di sini.
+                  </p>
+                ) : (
+                  <>
+                    <div className="sticky top-0 flex items-center gap-3 border-b border-border bg-[var(--bg-2)] px-4 py-2 font-mono text-[11px] text-ink-3">
+                      <Folder className="size-3.5 text-ink-4" />
+                      {changes.length} file diubah
+                      <span className="ml-auto">
+                        <span className="text-[#4aa06e]">
+                          +{changeTotal.reduce((s, d) => s + d.added, 0)}
+                        </span>{" "}
+                        <span className="text-[#c85a50]">
+                          −{changeTotal.reduce((s, d) => s + d.removed, 0)}
+                        </span>
+                      </span>
+                    </div>
+                    {changes.map((c) => (
+                      <DiffView key={c.path} change={c} />
+                    ))}
+                  </>
+                )}
               </div>
             )}
 
@@ -842,7 +1004,7 @@ export default function Chat() {
                             type="button"
                             aria-label="Tutup"
                             className="fixed inset-0 z-10 cursor-default"
-                            onClick={() => setModelMenu(false)}
+                            onClick={() => setAgentMenu(false)}
                           />
                           <div className="scrollbar-thin absolute bottom-full left-0 z-20 mb-2 max-h-80 w-96 overflow-y-auto rounded-[12px] border border-border bg-surface-2 shadow-2xl">
                             {MODELS.map((m) => (
@@ -928,15 +1090,13 @@ export default function Chat() {
                     />
                     {busy ? "generating" : "sandbox running"}
                   </span>
-                  <span>dev server on :{WORKSPACE.port}</span>
+                  <span>{paths.length} files</span>
                   <span>{activeModel.vendor}</span>
-                  <span className="text-ink-4/70">
-                    {activeModel.unmetered
-                      ? "unmetered"
-                      : activeModel.freeHours > 0
-                        ? `${activeModel.freeHours} jam/hari`
-                        : "paket berbayar"}
-                  </span>
+                  {changes.length > 0 && (
+                    <span>
+                      {changes.length} file diubah
+                    </span>
+                  )}
                   <span className="ml-auto">
                     Enter kirim · Shift+Enter baris baru
                   </span>
