@@ -178,7 +178,20 @@ export type GatewayInfo = {
 export type RouteDef = { method: string; path: string; note: string };
 
 export type TurnResult =
-  | { status: "ok"; traceId: string; changes: FileChange[]; summary: string }
+  | {
+      status: "ok";
+      traceId: string;
+      changes: FileChange[];
+      summary: string;
+      /** Present when the agent asked for a build in its own answer. */
+      build?: {
+        ok: boolean;
+        code: number | null;
+        ms: number;
+        output: string;
+        skipped?: string;
+      };
+    }
   | { status: "blocked"; guardrail: GuardrailCategory }
   | { status: "error"; reason: string };
 
@@ -190,6 +203,8 @@ export type TurnEvent =
   | { type: "delta"; text: string }
   | { type: "file"; path: string; op: "created" | "modified" }
   | { type: "table"; name: string; rows: number }
+  | { type: "build"; line: string }
+  | { type: "buildDone"; ok: boolean; code: number | null; ms: number; skipped?: string }
   | { type: "done"; result: TurnResult };
 
 // ── Mock backend ──────────────────────────────────────────────────────────

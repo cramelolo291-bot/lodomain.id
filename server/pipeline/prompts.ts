@@ -18,6 +18,20 @@ Rules:
 - no explanation inside the block
 - prose before or after the blocks is shown to the user as your answer`;
 
+const BUILD_PROTOCOL = `To check your work, ask for a real build with:
+
+\`\`\`lolo:build
+\`\`\`
+
+The target is optional: \`\`\`lolo:build typecheck\`\`\` or \`\`\`lolo:build test\`\`\`.
+Valid targets are build, typecheck, test, install. Anything else is ignored.
+
+Rules:
+- at most one per answer, and only the first is run
+- only after you have written the files, never before
+- the output is streamed to the user; read it and fix what it reports
+- the project needs a package.json with a matching script, or the build is skipped`;
+
 function effortNote(effort: Effort | undefined): string {
   if (!effort) return "";
   switch (effort) {
@@ -49,7 +63,9 @@ Context you can rely on:
 - The user is the operator and their friends. They are technical.
 - You have no internet access. Do not claim to have fetched anything.
 
-${FILE_PROTOCOL}${effortNote(effort)}`;
+${FILE_PROTOCOL}
+
+${BUILD_PROTOCOL}${effortNote(effort)}`;
 
   return base.trim();
 }

@@ -32,6 +32,25 @@ function toIssues(error: z.ZodError): FieldIssue[] {
   }));
 }
 
+/**
+ * Parses an already-decoded value, raising the same `ValidationError` a bad
+ * request body does.
+ *
+ * Needed wherever the body is optional or a different shape is acceptable —
+ * `body()` can only reject a malformed request, it cannot allow "no body at
+ * all". A bare `schema.parse` here would throw a raw `ZodError`, which the
+ * error handler does not recognise, and a client mistake would come back as a
+ * 500 instead of a 400 that says which field is wrong.
+ */
+export function parseValue<T extends z.ZodTypeAny>(
+  schema: T,
+  value: unknown,
+): z.infer<T> {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw new ValidationError(toIssues(parsed.error));
+  return parsed.data;
+}
+
 /** Parses a JSON body. Malformed JSON and a schema mismatch are both 400. */
 export async function body<T extends z.ZodTypeAny>(
   c: Context,

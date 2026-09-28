@@ -8,13 +8,27 @@
 //   <!doctype html>…
 //   ```
 //
+// and a build directive, which is how the agent checks its own work:
+//
+//   ```lolo:build
+//   ```
+//
 // Anything that isn't a well-formed block is left alone. A malformed block
 // never throws — it is just treated as prose, because a parser exception here
 // would lose the user's answer entirely.
 
 export type FileWrite = { path: string; content: string };
 
+/**
+ * The only things a model is allowed to ask the runner to do. Anything else in
+ * the directive is dropped rather than passed through, so a hallucinated
+ * `lolo:build rm -rf /` cannot become a command.
+ */
+export const BUILD_TARGETS = ["install", "build", "typecheck", "test"] as const;
+export type BuildTargetRequest = (typeof BUILD_TARGETS)[number];
+
 const FENCE = /```lolo:write\s+([^\s`]+)\s*\n([\s\S]*?)```/g;
+const BUILD_FENCE = /```lolo:build\s*([a-z]*)\s*```/g;
 
 /** Rejects paths that would escape the project directory. */
 export function isSafePath(path: string): boolean {
@@ -30,10 +44,29 @@ export function parseFileWrites(text: string): {
   writes: FileWrite[];
   /** The reply with the file blocks removed, for display. */
   prose: string;
+  /**
+   * What the model asked to be run, in the order it asked. Empty means it
+   * wanted to write files and stop — which is the common case.
+   */
+  builds: BuildTargetRequest[];
 } {
   const writes: FileWrite[] = [];
+  const builds: BuildTargetRequest[] = [];
 
-  const prose = text.replace(FENCE, (whole, rawPath: string, body: string) => {
+  const withoutBuilds = text.replace(BUILD_FENCE, (whole, rawTarget: string) => {
+    const target = (rawTarget || "build").trim() as BuildTargetRequest;
+    // An unrecognised target is not an error — it is a directive we do not
+    // honour, and the text stays visible so a human can see what was asked.
+    if (!BUILD_TARGETS.includes(target)) return whole;
+
+    // A 7B model will happily emit the same block six times. One build per
+    // occurrence is already generous; the pipeline caps the total, and the
+    // runner serialises, so a burst cannot fork-bomb the box.
+    builds.push(target);
+    return "";
+  });
+
+  const prose = withoutBuilds.replace(FENCE, (whole, rawPath: string, body: string) => {
     const path = rawPath.trim();
     if (!isSafePath(path)) return whole; // leave it visible, don't apply it
 
@@ -43,7 +76,7 @@ export function parseFileWrites(text: string): {
     return "";
   });
 
-  return { writes, prose: prose.replace(/\n{3,}/g, "\n\n").trim() };
+  return { writes, builds, prose: prose.replace(/\n{3,}/g, "\n\n").trim() };
 }
 
 export function renderFileWrites(writes: FileWrite[]): string {

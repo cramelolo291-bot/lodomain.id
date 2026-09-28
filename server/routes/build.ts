@@ -21,7 +21,7 @@ import {
   runBuild,
   safePreviewPath,
 } from "../build/runner";
-import { params } from "../http/validate";
+import { params, parseValue } from "../http/validate";
 import { z } from "zod";
 
 export const build = new Hono();
@@ -69,7 +69,7 @@ build.post("/projects/:project/build", async (c) => {
     // An empty body means "just build", which is the common case.
     raw = {};
   }
-  const input = runBody.parse(raw);
+  const input = parseValue(runBody, raw);
 
   const files = await db
     .select({ path: projectFiles.path, content: projectFiles.content })

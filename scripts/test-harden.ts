@@ -695,7 +695,114 @@ await test("inspect reports a plan without changing anything", async () => {
   check("it has a timestamp", !Number.isNaN(Date.parse(plan.createdAt)));
 });
 
-// ── Error containment ──────────────────────────────────────────────────────
+// ── Build route ────────────────────────────────────────────────────────────
+
+section("the build route, over a real database");
+
+// The project is created lazily by the first route that needs it, so ask for
+// it rather than guessing its name — the route under test is about builds, not
+// about provisioning.
+const { body: mine } = await call("/api/project");
+const slug = String(mine?.name ?? "lolo-app");
+
+await test("a build needs a session", async () => {
+  const saved = cookie;
+  cookie = "";
+  const { status } = await call(`/api/projects/${slug}/build`, {
+    method: "POST",
+    body: JSON.stringify({ target: "build" }),
+  });
+  check("401 without a cookie", status === 401, `${status}`);
+  cookie = saved;
+});
+
+await test("an unknown target is 400, not a 500", async () => {
+  const { status, body } = await call(`/api/projects/${slug}/build`, {
+    method: "POST",
+    body: JSON.stringify({ target: "rm -rf /" }),
+  });
+  check("400", status === 400, `${status}`);
+  check("validation error", body?.error?.type === "validation_error", JSON.stringify(body)?.slice(0, 120));
+});
+
+await test("a project with no package.json is skipped, not failed", async () => {
+  const { status, body } = await call(`/api/projects/${slug}/build`, {
+    method: "POST",
+    body: JSON.stringify({ target: "build" }),
+  });
+  check("200 — nothing to do is not an error", status === 200, `${status}`);
+  check("it says why", typeof body?.skipped === "string", JSON.stringify(body)?.slice(0, 160));
+  check("ok is true", body?.ok === true);
+  check("nothing is advertised as built", body?.hasOutput === false);
+});
+
+await test("an empty body still builds", async () => {
+  const { status, body } = await call(`/api/projects/${slug}/build`, { method: "POST" });
+  check("200", status === 200, `${status}`);
+  check("defaults to the build target", body?.target === "build", JSON.stringify(body)?.slice(0, 120));
+});
+
+await test("a project with a package.json actually runs the toolchain", async () => {
+  const project = await pool<{ id: string }[]>`select id from projects limit 1`;
+  const id = project[0]!.id;
+  // A dependency-free package.json, so the run needs no registry and stays
+  // quick. The point is that real files reach a real process.
+  await pool`
+    insert into project_files (project_id, path, content)
+    values (${id}, 'package.json', ${JSON.stringify({
+      name: "probe",
+      version: "1.0.0",
+      scripts: { build: 'node -e "console.log(1)"' },
+    })})
+    on conflict (project_id, path) do update set content = excluded.content
+  `;
+
+  const { status, body } = await call(`/api/projects/${slug}/build`, {
+    method: "POST",
+    body: JSON.stringify({ target: "build" }),
+  });
+  check("200", status === 200, `${status}`);
+  check("it ran", body?.command?.length > 0, JSON.stringify(body)?.slice(0, 200));
+  check("and it succeeded", body?.ok === true, JSON.stringify(body)?.slice(0, 300));
+  check("output is reported", String(body?.output ?? "").length > 0);
+  check("a duration was measured", typeof body?.ms === "number");
+
+  // A failed build must not leave an output directory to serve.
+  check("nothing is advertised as built", body?.hasOutput === false);
+
+  await pool`delete from project_files where project_id = ${id} and path = 'package.json'`;
+});
+
+await test("preview 404s honestly when nothing has been built", async () => {
+  const { status, body } = await call(`/api/projects/${slug}/preview`);
+  check("404", status === 404, `${status}`);
+  check("and says to build first", /build/i.test(String(body?.error?.message)), JSON.stringify(body));
+});
+
+await test("an unknown project is 404, not a build of nothing", async () => {
+  const { status } = await call("/api/projects/no-such-project/build", {
+    method: "POST",
+    body: JSON.stringify({ target: "build" }),
+  });
+  check("404", status === 404, `${status}`);
+});
+
+await test("the route is rate limited separately from the rest of the API", async () => {
+  // Six a minute is the build budget. A seventh request is refused even though
+  // the general API allowance is far higher, which is the whole point: builds
+  // install dependencies.
+  const results: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    const { status } = await call(`/api/projects/${slug}/build`, {
+      method: "POST",
+      body: JSON.stringify({ target: "build" }),
+    });
+    results.push(status);
+  }
+  check("a 429 appears within the burst", results.includes(429), results.join(","));
+});
+
+// ── Error containment ─────────────────────────────────────────────────────
 
 section("an internal failure does not leak");
 

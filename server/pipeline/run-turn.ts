@@ -42,10 +42,25 @@ import {
 } from "../ollama/pool";
 import { budgetHistory, systemPrompt } from "./prompts";
 import { parseFileWrites, type FileWrite } from "./file-blocks";
+import { runBuild } from "../build/runner";
 import { provisionTables } from "./data-space";
 
 export type TurnResult =
-  | { status: "ok"; traceId: string; changes: FileWrite[]; summary: string; content: string }
+  | {
+      status: "ok";
+      traceId: string;
+      changes: FileWrite[];
+      summary: string;
+      content: string;
+      /** Present when the agent asked for a build. */
+      build?: {
+        ok: boolean;
+        code: number | null;
+        ms: number;
+        output: string;
+        skipped?: string;
+      };
+    }
   | { status: "blocked"; guardrail: string; reason: string; direction: "input" | "output" }
   | { status: "error"; reason: string };
 
@@ -55,6 +70,10 @@ export type TurnEvent =
   | { type: "delta"; text: string }
   | { type: "file"; path: string; op: "created" | "modified" }
   | { type: "table"; name: string; rows: number }
+  /** A line of build output, as it arrives. */
+  | { type: "build"; line: string }
+  /** The build finished, whatever the outcome. */
+  | { type: "buildDone"; ok: boolean; code: number | null; ms: number; skipped?: string }
   | { type: "done"; result: TurnResult };
 
 export type Emit = (event: TurnEvent) => void;
@@ -144,6 +163,15 @@ export async function streamTurn(args: TurnArgs, emit: Emit = noop): Promise<Tur
     emit({ type: "done", result });
     return result;
   };
+
+  /**
+   * Filled in by the build stage and attached to the result. A `let` rather
+   * than a return value because the build sits between writing files and
+   * persisting the turn, and the result is assembled at the end.
+   */
+  let buildSummary:
+    | { ok: boolean; code: number | null; ms: number; output: string; skipped?: string }
+    | undefined;
 
   // ── 1. Input guardrail ───────────────────────────────────────────────────
   const t0 = Date.now();
@@ -304,7 +332,7 @@ export async function streamTurn(args: TurnArgs, emit: Emit = noop): Promise<Tur
 
       // ── 6. Apply ────────────────────────────────────────────────────────
       const tWrite = Date.now();
-      const { writes, prose } = parseFileWrites(result.content);
+      const { writes, prose, builds } = parseFileWrites(result.content);
       const applied = await applyWrites(args.projectId, writes);
       for (const w of applied) emit({ type: "file", path: w.path, op: "created" });
       push(
@@ -312,6 +340,51 @@ export async function streamTurn(args: TurnArgs, emit: Emit = noop): Promise<Tur
         applied.length ? `${applied.length} file(s)` : "no file writes",
         Date.now() - tWrite,
       );
+
+      // The agent asked to check its own work. One build per turn, ever: a
+      // small model will emit the directive repeatedly, and each run installs
+      // dependencies. The cap is here rather than in the model prompt because a
+      // prompt is advice and this is a rule.
+      if (builds.length > 0) {
+        const tBuild = Date.now();
+        const target = builds[0]!;
+        const files = await db
+          .select({ path: projectFiles.path, content: projectFiles.content })
+          .from(projectFiles)
+          .where(eq(projectFiles.projectId, args.projectId));
+
+        const build = await runBuild(
+          args.projectId,
+          Object.fromEntries(files.map((f) => [f.path, f.content])),
+          target,
+          { onOutput: (line) => emit({ type: "build", line }) },
+        );
+
+        buildSummary = {
+          ok: build.ok,
+          code: build.code,
+          ms: build.ms,
+          output: build.output,
+          ...(build.skipped ? { skipped: build.skipped } : {}),
+        };
+
+        emit({
+          type: "buildDone",
+          ok: build.ok,
+          code: build.code,
+          ms: build.ms,
+          ...(build.skipped ? { skipped: build.skipped } : {}),
+        });
+        push(
+          "build",
+          build.skipped
+            ? build.skipped
+            : build.ok
+              ? `${target} ok in ${(build.ms / 1000).toFixed(1)}s`
+              : `${target} failed (${build.code ?? "timeout"})`,
+          Date.now() - tBuild,
+        );
+      }
 
       const body = prose || result.content || "(empty response)";
       push(
@@ -361,9 +434,12 @@ export async function streamTurn(args: TurnArgs, emit: Emit = noop): Promise<Tur
         traceId,
         changes: applied,
         content: body,
-        summary: applied.length
-          ? `Wrote ${applied.length} file${applied.length === 1 ? "" : "s"}`
-          : "Answered without file changes",
+        ...(buildSummary ? { build: buildSummary } : {}),
+        summary: buildSummary
+          ? `${buildSummary.ok ? "Build passed" : "Build failed"} · ${applied.length} file${applied.length === 1 ? "" : "s"}`
+          : applied.length
+            ? `Wrote ${applied.length} file${applied.length === 1 ? "" : "s"}`
+            : "Answered without file changes",
       });
     } catch (e) {
       const status = e instanceof OllamaError ? e.status : 500;

@@ -189,6 +189,7 @@ function run(
   cwd: string,
   home: string,
   timeoutMs: number,
+  onOutput?: (line: string) => void,
 ): Promise<{ code: number | null; output: string; timedOut: boolean }> {
   return new Promise((resolve_) => {
     // Only PATH and locale survive. Everything else in this process's
@@ -216,6 +217,10 @@ function run(
 
     let output = "";
     let truncated = false;
+    // Lines are held back until a newline arrives, so a consumer never sees
+    // half a line — a build log that reflows while you read it is worse than
+    // one that arrives a beat late.
+    let pending = "";
     const append = (chunk: Buffer) => {
       if (truncated) return;
       const text = chunk.toString("utf8");
@@ -223,7 +228,15 @@ function run(
       if (output.length > MAX_OUTPUT_CHARS) {
         output = output.slice(0, MAX_OUTPUT_CHARS) + "\n… output truncated …\n";
         truncated = true;
+        pending = "";
+        onOutput?.("… output truncated …");
+        return;
       }
+      if (!onOutput) return;
+      pending += text;
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) onOutput?.(line);
     };
 
     child.stdout?.on("data", append);
@@ -255,6 +268,7 @@ function run(
 
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (pending && onOutput) onOutput?.(pending);
       resolve_({ code, output, timedOut });
     });
   });
@@ -282,7 +296,7 @@ export async function runBuild(
   projectId: string,
   files: Record<string, string>,
   target: BuildTarget,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; onOutput?: (line: string) => void } = {},
 ): Promise<BuildResult> {
   const started = Date.now();
 
@@ -345,6 +359,7 @@ export async function runBuild(
       Math.max(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000),
       HARD_TIMEOUT_MS,
     );
+    const onOutput = opts.onOutput;
 
     running = true;
     let combined = "";
@@ -354,7 +369,8 @@ export async function runBuild(
     try {
       for (const step of planned) {
         combined += `$ ${step.command} ${step.args.join(" ")}\n`;
-        const result = await run(step, root, home, timeout);
+        onOutput?.(`$ ${step.command} ${step.args.join(" ")}`);
+        const result = await run(step, root, home, timeout, onOutput);
         combined += result.output;
         if (combined.length > MAX_OUTPUT_CHARS) {
           combined = combined.slice(0, MAX_OUTPUT_CHARS) + "\n… output truncated …\n";

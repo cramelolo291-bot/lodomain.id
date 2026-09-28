@@ -537,6 +537,31 @@ export default function Chat() {
           model,
         });
         if (result.status === "ok") setChanges(result.changes);
+
+        // The agent ran its own build. Its output belongs in the terminal, and
+        // a successful build moves the preview to the real output directory.
+        if (result.status === "ok" && result.build) {
+          const b = result.build;
+          setTermLines((prev) => [
+            ...prev,
+            "$ agent → lolo:build",
+            ...(b.skipped ? [b.skipped] : b.output.split("\n")),
+            b.skipped
+              ? "· skipped"
+              : b.ok
+                ? `✓ build succeeded in ${(b.ms / 1000).toFixed(1)}s`
+                : `✗ build failed${b.code === null ? " (timed out)" : ` (exit ${b.code})`}`,
+          ]);
+          if (b.ok) {
+            setBuiltUrl(api.previewUrl(project?.name ?? ""));
+            setBuildMs(b.ms);
+            setPane("preview");
+            setPaneOpen(true);
+          } else {
+            setPane("term");
+            setPaneOpen(true);
+          }
+        }
       } finally {
         const [fresh, proj] = await Promise.all([
           api.listMessages(target),

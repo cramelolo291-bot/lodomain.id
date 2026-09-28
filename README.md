@@ -115,7 +115,7 @@ liveness on `/api/health`.
 | `bun run db:restore <file>` | restore, in one transaction |
 | `bun run db:list-backups` | list what you have |
 | `bun run typecheck` | `tsc -b --noEmit` |
-| `bun test` | all eight suites, no framework |
+| `bun test` | all ten suites, no framework |
 
 `bun test` is a set of sequential scripts rather than a test runner, so a
 failure names the exact step. `test:api` and `test:harden` stand up PGlite over
@@ -141,6 +141,52 @@ implementation, `streamTurn`, serves both:
 Everything in step 1–7 is written to the database, which is what the Server
 console renders: pool health, per-turn traces, token usage, and every guardrail
 hit with the reason.
+
+## The agent can build what it writes
+
+A model cannot reliably call tools at this size, so the protocol is fenced
+blocks — a 7B model produces them, and parsing them is trivial:
+
+````
+```lolo:write package.json
+{ "name": "app", "scripts": { "build": "vite build" } }
+```
+
+```lolo:build
+```
+````
+
+The write blocks land in the project. The `lolo:build` block makes the server
+materialise the whole project into a temporary workspace and run the real
+toolchain over it — `npm`/`bun install`, then `npm run build`. Output streams
+into the workspace terminal line by line, and a successful build switches the
+preview from the string-concatenated fallback to the real `dist/` directory.
+
+You can also build by hand: the **Build** button, or
+`POST /api/projects/:project/build` with `{"target":"install|build|typecheck|test"}`.
+
+At most one build runs per turn, and one at a time server-wide. Builds are rate
+limited to 6 a minute, because each one installs dependencies.
+
+### What this is not
+
+**The build runner is not a security boundary.** It runs as the server's user,
+on the server's machine, and `npm install` executes whatever lifecycle scripts
+the generated `package.json` declares. What it does guarantee:
+
+- the command comes from a fixed table, never from the request
+- `shell: false`, so nothing is interpolated into a shell
+- the child environment is rebuilt from an allowlist — `DATABASE_URL`,
+  `RESEND_API_KEY` and session material are not inherited
+- `HOME` points at the workspace, not the operator's home
+- the process group is killed on timeout, output is capped, and the workspace
+  is removed unless a build actually produced output
+
+For code you do not control at all, run the workspace inside a container —
+[llm-sandbox](https://github.com/vndee/llm-sandbox) over gVisor/Kata/Firecracker
+does this, and [sandboxd](https://github.com/inclusionAI/sandboxd) is the
+low-level daemon. That is a deployment decision, and the runner is written so
+swapping it does not change the pipeline.
 
 ## Security notes
 
