@@ -1,0 +1,58 @@
+name: lolo-ai
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lolo
+      POSTGRES_PASSWORD: lolo
+      POSTGRES_DB: lolo
+      # The app speaks English internally; keeping the cluster in one locale
+      # avoids "lc_collate does not exist" on some minimal images.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lolo -d lolo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Exposed only on loopback. The server reaches it over the compose network.
+    security_opt:
+      - no-new-privileges:true
+
+  # Optional. If Ollama already runs on the host, delete this block and set
+  # OLLAMA_URL=http://host.docker.internal:11434 in .env instead.
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      # Keeps the model resident between turns. Without it Ollama unloads after
+      # five idle minutes and every request pays a reload.
+      OLLAMA_KEEP_ALIVE: 45m
+      OLLAMA_NUM_PARALLEL: "2"
+    # Uncomment on a machine with an NVIDIA GPU to use the host driver.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  db-data:
+  ollama-models:

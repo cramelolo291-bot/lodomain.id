@@ -1024,7 +1024,9 @@ export type Api = ReturnType<typeof mockApi>;
 
 // ── Real backend (used once the Hono server exists) ───────────────────────
 
-const BASE = import.meta.env.VITE_API_URL ?? "";
+// `import.meta.env` is a Vite construct. The optional chain keeps this module
+// importable outside a bundler (tests, scripts) instead of throwing on load.
+const BASE = import.meta.env?.VITE_API_URL ?? "";
 
 function httpApi() {
   const get = <T,>(path: string) =>
@@ -1104,7 +1106,7 @@ function httpApi() {
  * whole app talks to the real database instead.
  */
 export const api: Api =
-  import.meta.env.VITE_API_MODE === "http" ? httpApi() : mockApi();
+  import.meta.env?.VITE_API_MODE === "http" ? httpApi() : mockApi();
 
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn);
