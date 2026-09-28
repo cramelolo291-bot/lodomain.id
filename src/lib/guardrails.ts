@@ -2,21 +2,31 @@
 // classes. Zero LLM calls: these rules run on every turn, inline, for free.
 //
 // They are a first filter, not a proof. Anything they miss is caught by the
-// Red Team agent in the conversation itself.
+// Red Team agent inside the conversation itself.
+//
+// No imports, so the browser and the Hono server can both run the exact same
+// rules against the exact same text.
 
-import { GUARDRAILS, type Guardrail } from "../convex/schema";
+export type GuardrailCategory =
+  | "prompt_injection"
+  | "jailbreak"
+  | "pii_leakage"
+  | "system_prompt_leak"
+  | "excessive_agency"
+  | "shell_injection"
+  | "credential_access";
 
 export type Severity = "low" | "medium" | "high" | "critical";
 
 export type Screening = {
   blocked: boolean;
-  category: Guardrail;
+  category: GuardrailCategory;
   severity: Severity;
   reason: string;
 };
 
-export type Rule = {
-  category: Guardrail;
+type Rule = {
+  category: GuardrailCategory;
   severity: Severity;
   reason: string;
   pattern: RegExp;
@@ -24,69 +34,70 @@ export type Rule = {
 
 const RULES: Rule[] = [
   {
-    category: GUARDRAILS.SYSTEM_PROMPT_LEAK,
+    category: "system_prompt_leak",
     severity: "high",
     reason: "Attempts to extract the system prompt or hidden instructions.",
     pattern:
       /\b(reveal|show|print|repeat|output|dump|leak)\b[^.\n]{0,40}\b(your\s+)?(system\s+prompt|initial\s+instructions|hidden\s+instructions|the\s+prompt\s+above)\b/i,
   },
   {
-    category: GUARDRAILS.PROMPT_INJECTION,
+    category: "prompt_injection",
     severity: "high",
     reason: "Tries to override the operator's instructions mid-conversation.",
     pattern:
       /(ignore|disregard|forget|override|bypass)\b[^.\n]{0,30}\b(all\s+)?(previous|prior|above|earlier|your)\b[^.\n]{0,30}\b(instruction|instructions|prompt|prompts|rule|rules|guideline|guidelines)\b/i,
   },
   {
-    category: GUARDRAILS.PROMPT_INJECTION,
+    category: "prompt_injection",
     severity: "medium",
     reason: "Injects a new system-level turn from untrusted content.",
     pattern:
       /(\[|<|```)?\s*(system|assistant|developer)\s*(\]|:|>)\s*(you\s+are|now\s+you|new\s+instructions|from\s+now\s+on)/i,
   },
   {
-    category: GUARDRAILS.JAILBREAK,
+    category: "jailbreak",
     severity: "medium",
     reason: "Roleplay framing used to shed the model's restrictions.",
     pattern:
       /\b(pretend|act as|roleplay|role-play|you\s+are\s+now)\b[^.\n]{0,40}\b(unrestricted|unfiltered|uncensored|no\s+rules|dan\s+mode|jailbroken|evil\s+ai)\b/i,
   },
   {
-    category: GUARDRAILS.JAILBREAK,
+    category: "jailbreak",
     severity: "low",
     reason: "Known jailbreak payload markers.",
-    pattern: /\b(do\s+anything\s+now|\bDAN\s+mode|developer\s+mode\s+enabled|sudo\s+mode)\b/i,
+    pattern:
+      /\b(do\s+anything\s+now|\bDAN\s+mode|developer\s+mode\s+enabled|sudo\s+mode)\b/i,
   },
   {
-    category: GUARDRAILS.EXCESSIVE_AGENCY,
+    category: "excessive_agency",
     severity: "high",
     reason: "Asks the agent to act beyond the authority the user actually holds.",
     pattern:
       /\b(delete|destroy|wipe|drop)\b[^.\n]{0,30}\b(all\s+)?(database|tables?|bucket|everything|production)\b|\b(transfer|wire|send)\b[^.\n]{0,20}\b(funds?|money|balance)\b/i,
   },
   {
-    category: GUARDRAILS.CREDENTIAL_ACCESS,
+    category: "credential_access",
     severity: "critical",
     reason: "Asks for secrets, tokens or private keys.",
     pattern:
-      /\b(give|show|print|send|leak|dump|what\s+is|reveal)\b[^.\n]{0,30}\b(api\s*keys?|secret\s*keys?|private\s*keys?|access\s*tokens?|bearer\s+tokens?|passwords?|credentials?|env\s*vars?)\b/i,
+      /\b(give|show|print|send|leak|dump|what\s+is|reveal)\b[^.\n]{0,30}\b(api\s*keys?|secret\s*keys?|private\s*keys?|access\s*tokens?|bearer\s*tokens?|passwords?|credentials?|env\s*vars?)\b/i,
   },
   {
-    category: GUARDRAILS.CREDENTIAL_ACCESS,
+    category: "credential_access",
     severity: "high",
     reason: "Bulk-harvest syntax for secrets, e.g. piping env or shadow files.",
     pattern:
       /(cat|printenv|env|echo|base64)\b[^|\n]{0,40}\||(cat|less|more)\b[^.\n]{0,20}\/etc\/(shadow|passwd)|\.aws\/credentials|\.env\b/i,
   },
   {
-    category: GUARDRAILS.SHELL_INJECTION,
+    category: "shell_injection",
     severity: "critical",
     reason: "Shell command chaining that would execute on the host.",
     pattern:
       /[;&|]{1,2}\s*(curl|wget|bash|sh|nc|rm\s+-rf|chmod\s+777|python\s+-c|node\s+-e)\b|\$\([^)]+\)|`[^`]+`\s*\|/i,
   },
   {
-    category: GUARDRAILS.PII_LEAKAGE,
+    category: "pii_leakage",
     severity: "high",
     reason: "Message carries personal data that should not be stored or echoed.",
     pattern:
@@ -96,12 +107,10 @@ const RULES: Rule[] = [
 
 export type Direction = "input" | "output";
 
-/** Rules that make sense on an inbound prompt vs. a model answer. */
+/** PII matching is noisy on a reply, so it only runs inbound. */
 function rulesFor(direction: Direction): Rule[] {
   if (direction === "input") return RULES;
-  // A model reply that trips a jailbreak marker is a real leak; PII matching on
-  // output is noisy, so it stays inbound-only.
-  return RULES.filter((r) => r.category !== GUARDRAILS.PII_LEAKAGE);
+  return RULES.filter((r) => r.category !== "pii_leakage");
 }
 
 export function screen(
@@ -123,7 +132,7 @@ export function screen(
   return null;
 }
 
-export const GUARDRAIL_LABELS: Record<Guardrail, string> = {
+export const GUARDRAIL_LABELS: Record<GuardrailCategory, string> = {
   prompt_injection: "Prompt injection",
   jailbreak: "Jailbreak",
   pii_leakage: "PII leakage",
@@ -139,3 +148,25 @@ export const SEVERITY_ORDER: Record<Severity, number> = {
   high: 2,
   critical: 3,
 };
+
+/**
+ * The attack techniques the Red Team agent knows to try, shown in the server
+ * panel so the coverage is legible rather than a black box.
+ */
+export const ATTACK_TECHNIQUES: Array<{
+  name: string;
+  targets: GuardrailCategory[];
+}> = [
+  { name: "Prompt injection", targets: ["prompt_injection"] },
+  { name: "System override", targets: ["prompt_injection", "system_prompt_leak"] },
+  { name: "Context poisoning", targets: ["prompt_injection"] },
+  { name: "Roleplay / DAN", targets: ["jailbreak"] },
+  { name: "Base64 & leetspeak", targets: ["jailbreak"] },
+  { name: "Crescendo (multi-turn)", targets: ["jailbreak"] },
+  { name: "Goal redirection", targets: ["excessive_agency"] },
+  { name: "System reconnaissance", targets: ["system_prompt_leak"] },
+  { name: "Shell & SQL injection", targets: ["shell_injection"] },
+  { name: "Credential harvesting", targets: ["credential_access"] },
+  { name: "PII extraction", targets: ["pii_leakage"] },
+  { name: "Agent identity spoofing", targets: ["prompt_injection"] },
+];

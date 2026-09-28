@@ -1,7 +1,10 @@
 // Shared catalog for the Lolo AI agent system.
-// Pure data so the Convex runtime and the browser can both import it.
+//
+// Pure data with no imports, so the browser and the eventual Hono server read
+// from one source. Adding a model here makes it available in the chat picker,
+// the server pool, and the OpenAI-compatible /v1/models endpoint.
 
-export type AgentAccent = "cool" | "warm";
+export type Accent = "cool" | "warm";
 
 export type AgentDef = {
   key: string;
@@ -9,10 +12,14 @@ export type AgentDef = {
   tagline: string;
   description: string;
   systemPrompt: string;
-  accent: AgentAccent;
+  accent: Accent;
   order: number;
 };
 
+/**
+ * The four specialists Lolo dispatches to. Lolo plans and answers; the other
+ * three are what it routes work to.
+ */
 export const AGENTS: AgentDef[] = [
   {
     key: "lolo",
@@ -32,7 +39,7 @@ export const AGENTS: AgentDef[] = [
     name: "Researcher",
     tagline: "Context & sources",
     description:
-      "Gathers context, separates what is known from what is assumed, and cites its reasoning.",
+      "Gathers context, separates what is known from what is assumed, and says which is which.",
     systemPrompt:
       "You are the Researcher agent. Gather the relevant context, state assumptions " +
       "explicitly, and separate verified facts from guesses. Structure the answer with " +
@@ -45,7 +52,7 @@ export const AGENTS: AgentDef[] = [
     name: "Builder",
     tagline: "Code & implementation",
     description:
-      "Writes and reviews code, runs through the failure modes, and ships the diff.",
+      "Writes and reviews code, handles the failure modes, and ships the smallest working diff.",
     systemPrompt:
       "You are the Builder agent. Produce working code, not pseudocode. Name the file, " +
       "show the change, and list the edge cases you handled. Prefer the smallest change " +
@@ -74,64 +81,81 @@ export function getAgent(key: string): AgentDef {
 }
 
 export type ModelDef = {
-  id: string;
+  /** Ollama tag, used verbatim as the `model` field. */
+  tag: string;
   label: string;
   blurb: string;
+  /** Approximate VRAM/RAM the weights need, in GB. */
+  vramGb: number;
   contextK: number;
-  /** Reasoning effort the upstream model accepts, if any. */
-  efforts: string[];
-  accent: AgentAccent;
+  /** What this model is actually good for, shown in the picker. */
+  bestFor: string;
+  accent: Accent;
 };
 
 /**
- * Models exposed through the gateway. Every id is OpenAI-compatible, so the
- * same catalog works against a local server, a self-hosted proxy, or a hosted API.
+ * Everything runs on Ollama on the user's own machine. `vramGb` drives the
+ * pool scheduler's admission control: a model that will not fit is never
+ * dispatched, no matter how healthy it looks.
  */
 export const MODELS: ModelDef[] = [
   {
-    id: "llama-3.3-70b-versatile",
-    label: "Llama 3.3 70B",
-    blurb: "Default. Deep reasoning, unmetered on the free pool.",
-    contextK: 128,
-    efforts: ["low", "high", "max"],
+    tag: "qwen3:8b",
+    label: "Qwen3 8B",
+    blurb: "Default. Best all-round balance for everyday work.",
+    vramGb: 6,
+    contextK: 32,
+    bestFor: "General chat, Indonesian, structured output",
     accent: "cool",
   },
   {
-    id: "openai/gpt-oss-120b",
-    label: "GPT-OSS 120B",
-    blurb: "Strong all-round reasoning with a very long window.",
-    contextK: 128,
-    efforts: ["low", "medium", "high"],
-    accent: "cool",
-  },
-  {
-    id: "qwen/qwen3-32b",
-    label: "Qwen3 32B",
-    blurb: "Balanced multilingual performance, good at long-form writing.",
-    contextK: 128,
-    efforts: ["low", "high"],
+    tag: "qwen2.5-coder:7b",
+    label: "Qwen2.5 Coder 7B",
+    blurb: "Code-tuned. What the Builder agent gets dispatched onto.",
+    vramGb: 6,
+    contextK: 32,
+    bestFor: "Code generation, refactors, debugging",
     accent: "warm",
   },
   {
-    id: "openai/gpt-oss-20b",
-    label: "GPT-OSS 20B",
-    blurb: "Compact and fast. Good default for short utility turns.",
-    contextK: 128,
-    efforts: ["low", "medium", "high"],
-    accent: "warm",
-  },
-  {
-    id: "llama-3.1-8b-instant",
+    tag: "llama3.1:8b",
     label: "Llama 3.1 8B",
-    blurb: "Lowest latency tier. For previews and cheap fan-out.",
+    blurb: "Steady and fast. Good for chatty research turns.",
+    vramGb: 6,
     contextK: 128,
-    efforts: [],
+    bestFor: "Long context, summarising, Q&A",
+    accent: "cool",
+  },
+  {
+    tag: "gemma3:12b",
+    label: "Gemma 3 12B",
+    blurb: "Strongest reasoner that still fits a 16GB card.",
+    vramGb: 10,
+    contextK: 32,
+    bestFor: "Hard reasoning, the Red Team agent",
+    accent: "cool",
+  },
+  {
+    tag: "deepseek-r1:14b",
+    label: "DeepSeek R1 14B",
+    blurb: "Shows its work. Slow but the best deep answers.",
+    vramGb: 11,
+    contextK: 32,
+    bestFor: "Multi-step math and logic",
     accent: "warm",
   },
 ];
 
-export const DEFAULT_MODEL = MODELS[0]!.id;
+export const DEFAULT_MODEL = MODELS[0]!.tag;
 
-export function getModel(id: string): ModelDef {
-  return MODELS.find((m) => m.id === id) ?? MODELS[0]!;
+export function getModel(tag: string): ModelDef {
+  return MODELS.find((m) => m.tag === tag) ?? MODELS[0]!;
+}
+
+/** Default specialist a given model is best suited to. */
+export function preferredAgent(tag: string): string {
+  if (tag.includes("coder")) return "builder";
+  if (tag.startsWith("deepseek") || tag.startsWith("gemma")) return "redteam";
+  if (tag.startsWith("llama")) return "researcher";
+  return "lolo";
 }

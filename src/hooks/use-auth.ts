@@ -1,19 +1,52 @@
-import { api } from "@/convex/_generated/api";
-import { useAuthActions } from "@convex-dev/auth/react";
-import { useConvexAuth, useQuery } from "convex/react";
+import { api, subscribe, type Session } from "@/lib/api";
+import { useCallback, useEffect, useState } from "react";
 
+/**
+ * Session state for the magic-link flow.
+ *
+ * There is no password and no OAuth provider, so there is nothing to keep in
+ * local storage: the session lives in an httpOnly cookie on the server and this
+ * hook only mirrors what `/api/me` says.
+ */
 export function useAuth() {
-  const { isLoading: isAuthLoading, isAuthenticated } = useConvexAuth();
-  const user = useQuery(api.users.currentUser);
-  const { signIn, signOut } = useAuthActions();
+  const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Derive isLoading directly from the dependencies instead of managing separate state
-  const isLoading = isAuthLoading || user === undefined;
+  const refresh = useCallback(async () => {
+    try {
+      setSession(await api.session());
+    } catch {
+      setSession(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    // The mock backend changes session in place, so it announces itself.
+    return subscribe(() => void refresh());
+  }, [refresh]);
+
+  const signIn = useCallback(
+    async (email: string) => {
+      await api.requestMagicLink(email);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const signOut = useCallback(async () => {
+    await api.signOut();
+    setSession(null);
+  }, []);
 
   return {
     isLoading,
-    isAuthenticated,
-    user,
+    session,
+    user: session,
+    isAuthenticated: session !== null,
+    isAdmin: session?.role === "admin",
     signIn,
     signOut,
   };

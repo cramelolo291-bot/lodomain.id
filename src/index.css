@@ -1,4 +1,7 @@
 /* DO NOT CHANGE */
+/* Font import has to lead the file: CSS drops any @import that appears after
+   an at-rule, and @theme is an at-rule. */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @custom-variant dark (&:is(.dark *));
@@ -58,8 +61,6 @@
   --font-serif: var(--font-serif);
   --font-mono: var(--font-mono);
 }
-
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap");
 
 :root {
   --radius: 0.75rem;
