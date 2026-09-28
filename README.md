@@ -63,22 +63,49 @@ docker compose up -d db       # or your own Postgres
 docker compose up -d ollama   # or a host install; set OLLAMA_URL instead
 ollama pull qwen3:8b
 bun run db:migrate
-bun run dev                   # frontend on :5173, in mock mode
 bun run server                # API on :8787
+bun run dev                   # frontend on :5173
 ```
 
 Without a `RESEND_API_KEY` the magic link is printed to the server log instead
 of mailed, so you can sign in end to end before touching any third party.
 
-To point the frontend at the real database instead of the in-browser mock:
+Full variable reference, Ollama sizing by RAM, and troubleshooting:
+**[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**.
+
+### Mock mode is not the agent
+
+By default the frontend runs against an in-browser mock. It is a UI demo: it
+screens prompts, animates a spinner, and produces file changes from a fixed
+set of templates. **No model is called, no database is touched, and nothing is
+written to disk.** Every answer it gives — including the file tree it lists —
+is invented.
+
+The mock is the default so the interface is explorable with nothing installed.
+It is not a quieter version of the real thing; it is a different program.
+
+To get the real agent, one line in `.env`:
 
 ```
 VITE_API_MODE=http
 VITE_API_URL=http://localhost:8787
 ```
 
-Full variable reference, Ollama sizing by RAM, and troubleshooting:
-**[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**.
+Then restart Vite. `VITE_API_MODE=http` is the only line that matters —
+`VITE_API_URL` only needs changing if the server is not on :8787.
+
+What changes when you flip it:
+
+| | mock | http |
+|---|---|---|
+| The answer | a template | the model in Ollama |
+| Files | in `localStorage` | rows in `project_files` |
+| Build | a printed fake log | the real toolchain, in a workspace |
+| Preview | a string-concatenated `index.html` | the real `dist/`, or a live dev server |
+| Data space | in memory | real tables you can edit in the panel |
+
+**If the answers still look canned, the frontend is still in mock mode.** The
+two modes are not distinguishable at a glance, which is the trap.
 
 ## Production
 
@@ -208,6 +235,39 @@ client sees a reason rather than a socket that closed for no visible cause.
 
 The port is never taken from the request. It comes from the process this server
 started, and the only thing a client controls is the path.
+
+### Files it can hand back
+
+The agent can write any text file, not just an app. `project_files.content` is
+a text column, so a PDF — which is bytes — is never stored. It is rendered on
+request:
+
+```
+GET /api/projects/:project/file/docs/laporan.md     → the markdown
+GET /api/projects/:project/file/docs/laporan.pdf    → a real PDF, rendered now
+GET /api/projects/:project/files                    → every file, with both links
+```
+
+The `.pdf` path is a rendering request, not a lookup: the server reads the
+markdown and lays it out as you download. So editing the markdown changes the
+PDF, and the document can never go stale. There is no stored copy to fall out
+of sync.
+
+`server/build/pdf.ts` writes the file by hand — object table, cross-reference
+table, content stream — rather than pulling in a PDF library. It lays out
+headings, paragraphs, bullets, code blocks and rules in Helvetica, paginates,
+and numbers the pages. It cannot embed images or use an embedded font: a
+base-14 font is one every reader already has, which is what makes a
+dependency-free PDF possible at all.
+
+Two things worth knowing about it. Non-Latin characters become `?`, because
+Helvetica's WinAnsi encoding has no glyph for them — an Indonesian or Japanese
+document needs an embedded font and a real library. And the download filename
+is reduced to something inert, so a title cannot inject a header or become a
+path.
+
+Anything the agent writes as markdown is therefore printable, without it
+having to know PDFs exist.
 
 ### What this is not
 

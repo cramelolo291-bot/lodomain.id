@@ -158,6 +158,79 @@ async function main() {
     recovered.map((t: { name: string }) => t.name).join(),
   );
 
+  console.log("\n— a build request actually produces files —");
+  // The bug this locks down: the scaffold wrote the same bytes on every turn,
+  // so a "build me a shop" request diffed to zero and the agent answered
+  // "nothing to change". A build request must always move the tree.
+  const { plan } = await import("../src/lib/project");
+  const agentDef = { name: "Forge", tagline: "t", description: "d" } as never;
+
+  const shop = plan(
+    "Buatkan web mobile toko online tampilan modern rapih banget",
+    { name: "lolo-app", files: {} },
+    agentDef,
+  );
+  check("a shop request writes files", shop.changes.length > 0, `${shop.changes.length}`);
+  const shopHtml = shop.files["index.html"]!;
+  check("it builds a page, not a placeholder", shopHtml.includes("<!doctype html>"));
+  check("the name comes from the request", /<title>Toko Online<\/title>/.test(shopHtml), /<title>(.*?)<\/title>/.exec(shopHtml)?.[1] ?? "");
+  check("a shop gets a cart", shopHtml.includes('placeholder="Cari produk'));
+  check("it is built for a phone", shopHtml.includes("safe-area-inset-bottom"));
+
+  const other = plan("Bikin aplikasi absensi siswa", { name: "lolo-app", files: {} }, agentDef);
+  check("a different request builds a different app", other.files["index.html"] !== shopHtml);
+  check("a non-shop request is not a shop", !other.files["index.html"]!.includes('placeholder="Cari produk'));
+  check("both are titled from their own prompt", /Absensi Siswa/.test(other.files["index.html"]!));
+
+  const again = plan(
+    "Buatkan web mobile toko online tampilan modern rapih banget",
+    { name: "lolo-app", files: shop.files },
+    agentDef,
+  );
+  check("the same request twice is honestly a no-op", again.changes.length === 0, `${again.changes.length}`);
+
+  const pkg = JSON.parse(shop.files["package.json"]!) as { name: string; scripts: Record<string, string> };
+  check("package name is derived, not constant", pkg.name === "toko-online", pkg.name);
+  check("it carries a real dev script", typeof pkg.scripts.dev === "string" && pkg.scripts.dev.length > 0);
+
+  console.log("\n— a PDF is a real PDF —");
+  const { markdownToPdf, pdfFilename } = await import("../server/build/pdf");
+  const doc = markdownToPdf(
+    "# Laporan\n\nParagraf yang cukup panjang untuk memastikan barisnya benar-benar diwrap.\n\n- satu\n- dua\n",
+    { title: "Laporan" },
+  );
+  const pdfText = doc.toString("latin1");
+  check("it starts with the PDF magic", pdfText.startsWith("%PDF-1.4"), pdfText.slice(0, 8));
+  check("it ends with EOF", pdfText.trimEnd().endsWith("%%EOF"));
+  check("it has a cross-reference table", pdfText.includes("\nxref\n"));
+  check("it has a trailer", pdfText.includes("trailer"));
+  check("it embeds a base-14 font", pdfText.includes("/BaseFont /Helvetica"));
+
+  // A PDF whose startxref does not point at `xref` is a file no reader opens.
+  const start = Number(/startxref\s+(\d+)/.exec(pdfText)?.[1]);
+  check("startxref points at the xref table", pdfText.slice(start, start + 4) === "xref");
+  const entries = pdfText
+    .slice(start)
+    .split("trailer")[0]!
+    .split("\n")
+    .map((l) => /^(\d{10}) 00000 n/.exec(l))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => Number(m[1]));
+  const badOffset = entries.findIndex((off, i) => !pdfText.slice(off).startsWith(`${i + 1} 0 obj`));
+  check(
+    "every xref offset lands on its object",
+    badOffset === -1,
+    badOffset >= 0 ? `obj ${badOffset + 1} -> ${JSON.stringify(raw.slice(entries[badOffset]!, entries[badOffset]! + 20))}` : "",
+  );
+
+  const long = markdownToPdf(Array.from({ length: 400 }, (_, i) => `Baris nomor ${i} dengan isi yang cukup panjang untuk mengisi ruang.`).join("\n\n"));
+  const pages = (long.toString("latin1").match(/\/Type \/Page[^s]/g) ?? []).length;
+  check("long input paginates", pages > 1, `${pages} pages`);
+
+  check("filename is sanitised", pdfFilename("../../etc/passwd") === "etcpasswd.pdf", pdfFilename("../../etc/passwd"));
+  check("filename has no header injection", !/[\r\n]/.test(pdfFilename("Laporan\nX: 1")), pdfFilename("Laporan\nX: 1"));
+  check("an empty title still gets a name", pdfFilename("   ") === "dokumen.pdf");
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 }

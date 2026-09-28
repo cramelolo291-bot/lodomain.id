@@ -43,7 +43,21 @@ Rules:
 - prose before or after the blocks is shown to the user as your answer
 
 If a request needs an app, the first thing you do is write files. An answer
-with no \`lolo:write\` block in it is almost never the right answer.`;
+with no \`lolo:write\` block in it is almost never the right answer.
+
+## What you can write
+
+Any text file. index.html, styles.css, a component tree, server routes, SQL
+migrations, JSON config, and markdown documents.
+
+Markdown is the format for anything the user would want to read or print —
+a report, a spec, a summary, a plan, notes. Write it as \`docs/nama.md\`, and
+tell the user they can open or download it as a PDF at
+\`/api/projects/<project>/file/docs/nama.pdf\`. The server renders it on request,
+so the PDF always matches the markdown.
+
+Do not write base64 or binary. A PDF is bytes, and you cannot produce bytes in a
+text block — write the markdown and let the server render it.`;
 
 const BUILD_PROTOCOL = `To check your work, ask for a real build with:
 

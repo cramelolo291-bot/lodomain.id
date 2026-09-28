@@ -25,6 +25,8 @@ import {
 } from "../build/runner";
 import { devServer, proxyToDev, startDev, stopDev, syncDev } from "../build/dev";
 import { tunnelUpgrade } from "../build/tunnel";
+import { markdownToPdf, pdfFilename } from "../build/pdf";
+import { isSafePath } from "../pipeline/file-blocks";
 import { params, parseValue } from "../http/validate";
 import { z } from "zod";
 
@@ -360,3 +362,115 @@ async function serve(target: string, out: string, c: Context) {
     return c.json({ error: { message: "Not found in build output" } }, 404);
   }
 }
+
+// ── Files ──────────────────────────────────────────────────────────────────
+//
+// The project's files live in Postgres as text, not on disk, so there is no
+// static directory to hand a browser. This turns one row into a response —
+// what the Changes panel and any generated document link point at.
+
+/** Extensions the agent is allowed to fetch back as a download. */
+const DOWNLOADABLE: Record<string, string> = {
+  ...MIME,
+  ".md": "text/markdown; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8",
+  ".yml": "text/yaml; charset=utf-8",
+  ".yaml": "text/yaml; charset=utf-8",
+  ".sql": "text/plain; charset=utf-8",
+  ".sh": "text/plain; charset=utf-8",
+};
+
+build.get("/projects/:project/file/*", async (c) => {
+  const { userId } = c.get("session");
+  const { project: ref } = params(c, projectParams);
+  const project = await resolveProject(ref, userId);
+  if (!project) return c.json({ error: { message: "Project not found" } }, 404);
+
+  let path: string;
+  try {
+    path = decodeURIComponent(
+      c.req.path.slice(c.req.path.indexOf("/file/") + "/file".length),
+    );
+  } catch {
+    return c.json({ error: { message: "Invalid path" } }, 400);
+  }
+
+  // Rejects `..`, absolute paths, and anything else that could climb out. The
+  // same rule the model was held to when it wrote the file, enforced again on
+  // the way out — a path is only safe if both ends agree.
+  if (!isSafePath(path)) return c.json({ error: { message: "Invalid path" } }, 400);
+
+  const row = await db
+    .select({ content: projectFiles.content })
+    .from(projectFiles)
+    .where(and(eq(projectFiles.projectId, project.id), eq(projectFiles.path, path)))
+    .limit(1);
+  if (!row[0]) return c.json({ error: { message: "No such file" } }, 404);
+
+  // `.pdf` is a rendering request, not a stored file: the database holds the
+  // markdown, and the PDF is produced here so it can never go stale.
+  if (/\.pdf$/i.test(path)) {
+    const source = path.replace(/\.pdf$/i, "");
+    if (isSafePath(source)) {
+      const md = await db
+        .select({ content: projectFiles.content })
+        .from(projectFiles)
+        .where(
+          and(eq(projectFiles.projectId, project.id), eq(projectFiles.path, source)),
+        )
+        .limit(1);
+      if (md[0]) {
+        const stem = source.split("/").pop() ?? "dokumen";
+        const buf = markdownToPdf(md[0].content, { title: stem });
+        c.header("content-type", "application/pdf");
+        c.header("content-disposition", `inline; filename="${pdfFilename(stem)}"`);
+        c.header("cache-control", "no-store");
+        c.header("x-content-type-options", "nosniff");
+        return c.body(new Uint8Array(buf) as unknown as ArrayBuffer);
+      }
+    }
+  }
+
+  const type = DOWNLOADABLE[extname(path).toLowerCase()];
+  if (!type) {
+    return c.json({ error: { message: "That file type cannot be downloaded" } }, 415);
+  }
+
+  const name = (path.split("/").pop() ?? "file").replace(/["\\]/g, "");
+  c.header("content-type", type);
+  c.header("content-disposition", `inline; filename="${name}"`);
+  c.header("cache-control", "no-cache");
+  // A downloaded .html is inert: the CSP sandbox means it cannot reach the
+  // API with the session cookie.
+  c.header("content-security-policy", "sandbox");
+  c.header("x-content-type-options", "nosniff");
+  return c.body(row[0].content);
+});
+
+/** Lists the project's files so the UI can offer links without guessing. */
+build.get("/projects/:project/files", async (c) => {
+  const { userId } = c.get("session");
+  const { project: ref } = params(c, projectParams);
+  const project = await resolveProject(ref, userId);
+  if (!project) return c.json({ error: { message: "Project not found" } }, 404);
+
+  const rows = await db
+    .select({ path: projectFiles.path, updatedAt: projectFiles.updatedAt })
+    .from(projectFiles)
+    .where(eq(projectFiles.projectId, project.id));
+
+  return c.json({
+    files: rows
+      .map((r) => ({
+        path: r.path,
+        updatedAt: r.updatedAt,
+        url: `/api/projects/${project.id}/file/${r.path}`,
+        // The file route renders `.md` to PDF on request, so every markdown
+        // file is offered twice: as text, and as a document.
+        pdfUrl: /\.md$/i.test(r.path)
+          ? `/api/projects/${project.id}/file/${r.path.replace(/\.md$/i, ".pdf")}`
+          : null,
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path)),
+  });
+});

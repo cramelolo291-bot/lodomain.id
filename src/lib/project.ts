@@ -196,9 +196,11 @@ function titleFrom(prompt: string): string {
   const cleaned = prompt
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/\b(bikin|buatkan|bikinin|buat|buatlah|create|make|build|generate|robohin|tolong|please|dong|guys|min)\b/gi, " ")
-    .replace(/\b(aplikasi|aplikasi\s+web|web\s+app|website|situs|site|web|halaman|page|toko|store|shop|app|apk|aplikasinya?)\b/gi, " ")
-    .replace(/\b(tampilan\s+)?(modern|moderen|keren|megliah|bersih|rapih|rapikan|simple|simple|minimalis|elegan|beauty|beautiful|nice|clean|pretty|polished)\b/gi, " ")
-    .replace(/\b(banget|banget banget|sekali| dong|ya|yuk|sih|kek|kah)\b/gi, " ")
+    .replace(/\b(aplikasi|aplikasinya|web\s+app|website|situs|halaman|web|page|app|apk)\b/gi, " ")
+    .replace(/\b(mobile|web|desktop|android|ios|respon\w*|responsive|frontend|back-?end)\b/gi, " ")
+    .replace(/\b(tampilan|tampilan-nya|design|desain|gaya|style|theme|tema)\b/gi, " ")
+    .replace(/\b(modern|moderen|keren|megliah|bersih|rapih|rapikan|simple|minimalis|elegan|beauty|beautiful|nice|clean|pretty|polished|wow|keren banget)\b/gi, " ")
+    .replace(/\b(banget|sekali|dong|ya|yuk|sih|kek|kah|itu|ini|para|seluruh|seluruhnya)\b/gi, " ")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -945,7 +947,6 @@ function slug(title: string): string {
     .replace(/^-+|-+$/g, "");
   return s || "lolo-app";
 }
-};
 
 /**
  * Turn a request into real file mutations. This is the only simulated part;

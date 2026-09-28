@@ -397,6 +397,41 @@ const lastTrace = await db
   .from(traces)
   .orderBy(desc(traces.createdAt))
   .limit(1);
+
+// ── The prompt has to ask for a build ──────────────────────────────────────
+//
+// The behaviour this locks down: a "build me a shop" request came back with
+// "nothing to change", because the prompt described the agent as part of a
+// server and never once said its job was to write files. A small model reads
+// the system prompt literally.
+
+console.log("\n— the system prompt tells the model to build —");
+const systemText = (lastRequest as { messages?: Array<{ content: string }> })?.messages?.[0]
+  ?.content ?? "";
+// The prompt is hard-wrapped for readability, so a phrase can straddle a
+// newline. Assertions run against the unwrapped text.
+const flat = systemText.replace(/\s+/g, " ");
+
+check("the prompt states the job", /you are here to BUILD/i.test(flat), flat.slice(0, 80));
+check(
+  "it forbids the 'nothing to change' answer",
+  /do not reply that nothing needs to change/i.test(flat),
+);
+check("it says to answer in Indonesian", /Indonesian/i.test(flat));
+check(
+  "it says the project is not a codebase to audit",
+  /not a codebase you are auditing/i.test(flat),
+  flat.slice(0, 120),
+);
+check("it names the file protocol", systemText.includes("```lolo:write"));
+check("it documents markdown for documents", /docs\/nama\.md/.test(systemText));
+check("it explains the PDF is server-rendered", /server render/i.test(systemText));
+check("it tells the model not to emit base64", /base64/i.test(systemText));
+
+// The file route renders markdown to PDF on request, so the link the prompt
+// tells the model to give has to be a route that exists.
+const { pdfFilename } = await import("../server/build/pdf");
+check("the suggested filename is one the server produces", pdfFilename("nama") === "nama.pdf");
 const stages = ((lastTrace[0]?.steps ?? []) as Array<{ stage: string; detail: string }>).map(
   (s) => s.stage,
 );
