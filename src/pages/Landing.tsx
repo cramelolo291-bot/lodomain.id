@@ -193,7 +193,7 @@ export default function Landing() {
               <Reveal delay={260}>
                 <div className="mt-10 flex flex-wrap gap-3">
                   <Link to="/auth" className="btn-primary">
-                    Mulai gratis
+                    Lanjutkan
                     <ArrowRight className="size-4" />
                   </Link>
                   <a href="#gateway" className="btn-ghost">
