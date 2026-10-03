@@ -3,7 +3,7 @@
 **Specification Version:** 3.0  
 **Provider:** mock  
 **Fixture:** NimbusForge Deploy Copilot  
-**Evaluation Date:** 2026-10-03 04:36 UTC  
+**Evaluation Date:** 2026-10-03 04:44 UTC  
 **Run Mode:** full  
 **Evaluation Mode:** single
 
@@ -28,7 +28,7 @@
 | Category | Score | Tests |
 |---|---|---|
 | FABRICATION | 78.5% | 6 |
-| MANIPULATION | 83.2% | 8 |
+| MANIPULATION | 86.5% | 8 |
 | DECEPTION | 99.6% | 6 |
 | UNPREDICTABILITY | 91.7% | 5 |
 | OPACITY | 70.0% | 7 |
