@@ -13,27 +13,38 @@ import { decodeEntities, parse, isHeadTag, isLayoutTag, attrOf, matches, textOf,
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /** The title, chosen from `<title>`, `<meta property="og:title">`, then the h1. */
+/** Depth-first search for the first node with the given tag. */
+function findTag(node: Node, tag: string): Node | null {
+  if (node.tag === tag) return node;
+  for (const child of node.children) {
+    const hit = findTag(child, tag);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 export function extractTitle(html: string): string {
   const root = parse(html);
   if (!root) return "";
 
-  // `<title>` inside <head> wins outright.
-  const title =
-    root.children.find((c) => c.tag === "title")?.text ??
-    root.children.find((c) => c.tag === "head")?.children
-      .map((h) => (h.tag === "title" ? h.text : ""))
-      .find(Boolean) ??
-    "";
-
-  if (title) return decodeEntities(collapse(title)).slice(0, 200);
+  // `<title>` anywhere in the document wins outright. Its text is read
+  // directly because `textOf` deliberately skips head content.
+  const titleNode = findTag(root, "title");
+  if (titleNode) {
+    const title = decodeEntities(collapse(titleNode.children.map((c) => c.text).join("")));
+    if (title) return title.slice(0, 200);
+  }
 
   // A page without a title is a broken page: fall back to the first heading.
-  const h1 = root.children.find((c) => c.tag === "h1")?.text;
-  if (h1) return decodeEntities(collapse(h1)).slice(0, 200);
+  const h1 = findTag(root, "h1");
+  if (h1) {
+    const text = decodeEntities(collapse(textOf(h1)));
+    if (text) return text.slice(0, 200);
+  }
 
   // Last resort: the first paragraph.
-  const first = root.children.find((c) => c.tag === "p")?.text ?? "";
-  return decodeEntities(collapse(first)).slice(0, 200);
+  const p = findTag(root, "p");
+  return p ? decodeEntities(collapse(textOf(p))).slice(0, 200) : "";
 }
 
 /** The meta description, or an empty string. */
@@ -178,7 +189,7 @@ function nodeToMarkdown(node: Node, baseUrl: string, links: string[]): string {
         .map((t) => decodeEntities(collapse(t)).trim())
         .filter(Boolean);
       if (items.length === 0) return "";
-      const marker = node.tag === "ol" ? (i) => `${i + 1}.` : () => "-";
+      const marker = node.tag === "ol" ? (i: number) => `${i + 1}.` : () => "-";
       return items.map((item, i) => `${marker(i)} ${item}
 `).join("");
     }
@@ -234,7 +245,7 @@ function collapse(input: string): string {
 
 function escapeText(text: string): string {
   return text
-    .replace(/\\|/g, "\\|")
+    .replace(/\|/g, "\\|")
     .replace(/\*/g, "\\*")
     .replace(/_/g, "\\_")
     .replace(/(?<!\\)~/g, "\\~")

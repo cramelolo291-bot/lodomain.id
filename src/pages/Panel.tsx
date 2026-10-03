@@ -29,7 +29,7 @@ import {
   Users,
 } from "lucide-react";
 import type { FreebuffIssue, FreebuffPr } from "@/lib/frebbuff-data";
-import { fetchFreebuffData, sortIssues, sortPrs } from "@/lib/frebbuff-data";
+import { fetchFreebuffData, sortIssues, sortPrs, mergedAt } from "@/lib/frebbuff-data";
 
 // Static counts so the cards render immediately; the fetch below refreshes
 // the live numbers from GitHub.
@@ -218,7 +218,7 @@ function toIssueView(i: FreebuffIssue): PanelIssue {
     id: `issue-${i.number}`,
     number: i.number,
     title: i.title,
-    user: i.user,
+    user: i.user.login,
     createdAt: i.created_at,
     comments: i.comments,
     state: i.state,
@@ -232,9 +232,9 @@ function toPrView(p: FreebuffPr): PanelPr {
     id: `pr-${p.number}`,
     number: p.number,
     title: p.title,
-    user: p.user,
+    user: p.user.login,
     createdAt: p.created_at,
-    mergedAt: p.merged_at,
+    mergedAt: mergedAt(p),
     comments: p.comments,
     state: p.state,
     labels: labelsOf(p.labels).map((l) => l.name),

@@ -68,10 +68,16 @@ export default function Web() {
   );
 
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
+      // fetchFreebuffData degrades internally rather than rejecting, so a
+      // throttled visitor still gets the published metrics and a rendered page.
       const d = await fetchFreebuffData();
-      setData(d);
+      if (!cancelled) setData(d);
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Rendered from the static copy until the live fetch lands, so the layout
@@ -147,6 +153,13 @@ export default function Web() {
             </Link>
           </div>
         </div>
+
+        {data && files.length === 0 && (
+          <p className="mb-8 rounded-[10px] border border-border bg-surface-2 px-4 py-3 font-mono text-[12px] text-ink-3">
+            live GitHub data is unavailable right now — the file tree below is
+            empty and the figures shown are the last published ones.
+          </p>
+        )}
 
         <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
           {/* Left: stats + file browser */}
@@ -276,7 +289,7 @@ export default function Web() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-mono text-[12.5px] text-ink-1">{i.title}</p>
                       <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">
-                        by {i.user} · {i.created_at.slice(0, 10)} · {i.comments} comments
+                        by {i.user.login} · {i.created_at.slice(0, 10)} · {i.comments} comments
                       </p>
                     </div>
                     <ArrowRight className="size-3 shrink-0 text-ink-4/30" />
@@ -311,7 +324,7 @@ export default function Web() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-mono text-[12.5px] text-ink-1">{p.title}</p>
                       <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">
-                        by {p.user} · updated {p.created_at.slice(0, 10)} · {p.comments} comments
+                        by {p.user.login} · updated {p.created_at.slice(0, 10)} · {p.comments} comments
                       </p>
                     </div>
                     <ArrowRight className="size-3 shrink-0 text-ink-4/30" />

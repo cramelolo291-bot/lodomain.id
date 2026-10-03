@@ -11,7 +11,7 @@
 // CodebuffAI/freebuff: 13,100 stars, 1,399 forks, 310 open issues and 113 open
 // PRs.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -30,7 +30,7 @@ import {
   Users,
   GitFork,
 } from "lucide-react";
-import type { FreebuffGithubResponse } from "@/lib/frebbuff-data";
+import { fetchFreebuffData, type FreebuffRepo } from "@/lib/frebbuff-data";
 
 // Static published metrics, used so the page renders at first paint. The
 // fetch below refreshes these from the live GitHub API.
@@ -131,48 +131,34 @@ export default function Dashboard() {
   const [openIssues, setOpenIssues] = useState(STATIC.openIssues);
   const [openPrs, setOpenPrs] = useState(STATIC.openPrs);
   const [loading, setLoading] = useState(true);
+  const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
   useEffect(() => {
     // The dashboard is public and read-only: it reads the published GitHub
     // numbers and renders them, it does not write anywhere and it never
-    // touches the freebuff/ source folder. A lightweight fetch on mount to
-    // keep the numbers in sync.
+    // touches the freebuff/ source folder.
+    //
+    // This goes through the shared fetcher rather than its own requests so all
+    // four public pages share one in-flight batch and one sessionStorage entry.
+    // Rolling its own fetches doubled the anonymous rate-limit burn for no
+    // benefit, and bypassed the published-number fallback on throttle.
     void (async () => {
-      try {
-        const [repo, issues, prs] = await Promise.all([
-          fetch("https://api.github.com/repos/CodebuffAI/freebuff", {
-            headers: { Accept: "application/vnd.github+json" },
-            cache: "no-store",
-          }),
-          fetch(
-            "https://api.github.com/search/issues?q=repo:CodebuffAI/freebuff+is:issue+is:open&per_page=10",
-            { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" },
-          ),
-          fetch(
-            "https://api.github.com/search/issues?q=repo:CodebuffAI/freebuff+is:pr+is:open&per_page=10",
-            { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" },
-          ),
-        ]);
-        if (repo.ok) {
-          const r = (await repo.json()) as { stargazers_count: number; forks_count: number };
-          setStars(r.stargazers_count);
-          setForks(r.forks_count);
-        }
-        if (issues.ok) {
-          const j = (await issues.json()) as { total_count: number };
-          setOpenIssues(j.total_count);
-        }
-        if (prs.ok) {
-          const j = (await prs.json()) as { total_count: number };
-          setOpenPrs(j.total_count);
-        }
-      } catch {
-        // Keep the static published numbers on the page if the network is
-        // unavailable; the page still renders and the cached published values
-        // are correct.
-      } finally {
-        setLoading(false);
+      const d = await fetchFreebuffData();
+      const repo: FreebuffRepo = d.repo;
+      if (!cancelledRef.current) {
+        setStars(repo.stars);
+        setForks(repo.forks);
+        setOpenIssues(repo.openIssues);
+        setOpenPrs(repo.prs);
       }
+      setLoading(false);
     })();
   }, []);
 

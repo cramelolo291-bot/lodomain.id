@@ -9,9 +9,32 @@
 // The node type is the whole contract between this module and the others:
 //   { tag: string, attrs: Map<string,string>, children: Node[], text: string }
 
-export type Node =
-  | { tag: "text"; text: string }
-  | { tag: string; attrs: Map<string, string>; children: Node[]; text: string };
+/**
+ * One shape for every node.
+ *
+ * This was previously a union of `{tag:"text"}` and `{tag:string, attrs,
+ * children}`, but that union did not describe what the parser actually
+ * produces: `buildNode` seeds the root as `{tag:"text"}` and then pushes real
+ * children onto it, and `parse()` returns a "text" node holding the whole
+ * document. So text nodes genuinely do carry `attrs` and `children`, and
+ * because the second member's `tag` was a bare `string` it also matched
+ * "text", which left the union unnarrowable and broke every `.attrs`/
+ * `.children` access across the crawler.
+ *
+ * `tag === "text"` still identifies a text node at runtime; the fields are
+ * simply present on it, which is what the tree builder relies on.
+ */
+export type Node = {
+  tag: string;
+  attrs: Map<string, string>;
+  children: Node[];
+  text: string;
+};
+
+/** True for a text node — i.e. one with no element tag of its own. */
+export function isText(node: Node): boolean {
+  return node.tag === "text";
+}
 
 const VOID = new Set([
   "area",
@@ -100,12 +123,16 @@ export function tokenize(html: string): Array<{ type: "text"; value: string } | 
       rest = rest.slice(open);
     }
 
-    const next = rest[0] === "<" ? rest.slice(1) : "";
-    const match = /^<([a-zA-Z][a-zA-Z0-9:_.-]*)([^>]*)>/.exec(next);
+    // Match the tag against `rest` itself. This used to match against `rest`
+    // minus its leading "<" while the pattern was still anchored on `^<`,
+    // which is unsatisfiable — every tag fell through to the text branch and
+    // the parser produced one giant text node.
+    const match = /^<([a-zA-Z][a-zA-Z0-9:_.-]*)([^>]*)>/.exec(rest);
     if (!match) {
-      // No well-formed tag: treat the whole `<...` as text.
-      out.push({ type: "text", value: "<" + next });
-      rest = next.slice((match ? next.indexOf(">") : 0) + 1);
+      // No well-formed tag: emit the "<" as text and rescan after it, so the
+      // loop always advances.
+      out.push({ type: "text", value: "<" });
+      rest = rest.slice(1);
       continue;
     }
 
@@ -125,7 +152,7 @@ export function tokenize(html: string): Array<{ type: "text"; value: string } | 
     }
 
     if (VOID.has(tagName) || restOfTag.endsWith("/")) {
-      out.push({ type: "tag", value: `<${tagName}${restOfTag.endsWith("/") ? "" : " "}${restOfTag.replace(/\/$/, "")}>`, closing: false });
+      out.push({ type: "tag", value: rest.slice(0, match[0].length), closing: false });
       rest = rest.slice(match[0].length);
       continue;
     }
@@ -134,11 +161,13 @@ export function tokenize(html: string): Array<{ type: "text"; value: string } | 
     if (end === -1) {
       // Never silently swallow an unclosed tag: feed it to the consumer as
       // plain text so the page still renders.
-      out.push({ type: "text", value: "<" + next.slice(match[0].length - 1) });
+      out.push({ type: "text", value: rest.slice(0, match[0].length) });
       rest = rest.slice(match[0].length);
       continue;
     }
-    out.push({ type: "tag", value: next.slice(0, match[0].length + end), closing: false });
+    // The token spans the opening tag and its inner content; the closing tag is
+    // emitted separately. Both offsets are indices into `rest`.
+    out.push({ type: "tag", value: rest.slice(0, end), closing: false });
     out.push({ type: "tag", value: "</" + tagName + ">", closing: true });
     rest = rest.slice(end + (tagName.length + 3));
   }
@@ -146,15 +175,18 @@ export function tokenize(html: string): Array<{ type: "text"; value: string } | 
   return out;
 }
 
+type Token = { type: "text"; value: string } | { type: "tag"; value: string; closing: boolean };
+
+function textNode(text: string): Node {
+  return { tag: "text", attrs: new Map(), children: [], text };
+}
+
 /** Build one node at a time. Returns the completed node and the remaining tokens. */
-function buildNode(tokens: Array<{ type: "text"; value: string } | { type: "tag"; value: string; closing: boolean }>, start: number): {
-  node: Node;
-  next: number;
-} {
-  const node: Node = { tag: "text", attrs: new Map(), children: [], text: "" };
+function buildNode(tokens: Token[], start: number): { node: Node; next: number } {
+  const node: Node = textNode("");
 
   for (let i = start; i < tokens.length; i++) {
-    const token = tokens[i];
+    const token = tokens[i]!;
     if (token.type === "text") {
       node.text += token.value;
       continue;
@@ -172,9 +204,10 @@ function buildNode(tokens: Array<{ type: "text"; value: string } | { type: "tag"
     }
 
     const tagName = tagRe[1].toLowerCase();
-    const inner = tagRe[2] || "";
-    const isClosing = inner.startsWith("/");
-    const restOfTag = isClosing ? inner.slice(1).trimStart() : inner.trimStart();
+    // `tagRe[0]` is the whole "<name ...>" opener; whatever follows it in this
+    // token is the element's raw inner HTML, which is parsed recursively below.
+    const innerHtml = token.value.slice(tagRe[0].length);
+    const restOfTag = tagRe[2] ?? "";
 
     const attrs = new Map<string, string>();
     const attrRe = /([a-zA-Z_:][a-zA-Z0-9_:.-]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))/g;
@@ -185,25 +218,23 @@ function buildNode(tokens: Array<{ type: "text"; value: string } | { type: "tag"
       attrs.set(attrMatch[1].toLowerCase(), decodeEntities(raw));
     }
 
-    if (VOID.has(tagName) || restOfTag.endsWith("/")) {
+    if (VOID.has(tagName) || restOfTag.trimEnd().endsWith("/")) {
       node.children.push({ tag: tagName, attrs, children: [], text: "" });
       continue;
     }
 
-    const close = tokens.indexOf(
-      { type: "tag", value: "</" + tagName + ">", closing: true },
-      i + 1,
-    );
-    if (close === -1) {
-      // Missing closer is the most common real-world error. The parent's closer
-      // wins, or the node is dropped — never an exception.
-      node.children.push({ tag: tagName, attrs, children: [], text: "" });
-      continue;
-    }
+    const inner = buildNode(tokenize(innerHtml), 0).node;
+    // Text stays a child node rather than being hoisted onto the element:
+    // `textOf` and the markdown serializer both read `node.children`.
+    const children = inner.children.slice();
+    if (inner.text) children.push(textNode(decodeEntities(inner.text)));
+    node.children.push({ tag: tagName, attrs, children, text: "" });
 
-    const child = buildNode(tokens, i + 1);
-    node.children.push(child.node);
-    i = child.next - 1;
+    // Consume this element's closing tag, if the tokenizer emitted one. The
+    // lookup matches on value, not reference — `indexOf` with an object literal
+    // never matches and silently dropped every element's content.
+    const following = tokens[i + 1];
+    if (following?.type === "tag" && following.closing) i++;
   }
 
   return { node, next: tokens.length };
@@ -219,7 +250,19 @@ export function parse(html: string): Node {
 
 /** True when the element is a head content element — invisible in the final markdown. */
 export function isHeadTag(tag: string): boolean {
-  return tag === "style" || tag === "script" || tag === "noscript" || tag === "template" || tag === "svg" || tag === "math";
+  // "head" and "title" belong here too: they carry metadata rather than page
+  // text, so textOf skips them and the markdown serializer never emits the
+  // document title as a body line.
+  return (
+    tag === "head" ||
+    tag === "title" ||
+    tag === "style" ||
+    tag === "script" ||
+    tag === "noscript" ||
+    tag === "template" ||
+    tag === "svg" ||
+    tag === "math"
+  );
 }
 
 /** An element is a layout object when its job is structure, not content. */
@@ -257,6 +300,14 @@ export function attrOf(node: Node, name: string): string | null {
 }
 
 /** Join the direct children's text, collapsed to a single line. */
+/**
+ * The visible text of a node's subtree.
+ *
+ * Head content (`<title>`, `<style>`, `<script>`, …) is skipped: it is not
+ * rendered as page text, and including it leaked CSS and the document title
+ * into the extracted text.
+ */
 export function textOf(node: Node): string {
+  if (isHeadTag(node.tag)) return "";
   return node.children.map((c) => (c.tag === "text" ? c.text : textOf(c))).join("");
 }

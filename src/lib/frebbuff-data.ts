@@ -51,24 +51,46 @@ export type FreebuffRepoFile = {
   downloadedAt?: number;
 };
 
+/**
+ * The presence and shape of GitHub's `pull_request` field is what distinguishes
+ * a pull request from an issue in a search result — it is an object, not a
+ * boolean, and it is where `merged_at` actually lives.
+ */
+export type FreebuffPullRef = {
+  url: string;
+  html_url: string;
+  merged_at: string | null;
+};
+
+/** GitHub returns the author as an object; only `login` is ever displayed. */
+export type FreebuffUser = {
+  login: string;
+  avatar_url?: string;
+  html_url?: string;
+};
+
 export type FreebuffIssue = {
   number: number;
   title: string;
   state: "open" | "closed";
-  user: string;
+  user: FreebuffUser;
   created_at: string;
   updated_at: string;
   html_url: string;
   comments: number;
-  pull_request: boolean;
+  pull_request?: FreebuffPullRef;
   labels: Array<{ name: string }>;
   body?: string;
 };
 
 export type FreebuffPr = FreebuffIssue & {
-  merged_at: string | null;
-  merge_commit_sha: string | null;
+  pull_request: FreebuffPullRef;
 };
+
+/** The PR's merge time, or null when it is still open. */
+export function mergedAt(pr: FreebuffPr): string | null {
+  return pr.pull_request.merged_at ?? null;
+}
 
 export type FreebuffGithubResponse = {
   total_count: number;
@@ -132,20 +154,24 @@ function authHeader(): Record<string, string> {
   return { Accept: "application/vnd.github+json" };
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: authHeader(), cache: "no-store" });
-  if (!res.ok) {
-    // GitHub returns 403 + a RateLimit-Remaining header when unauthenticated
-    // and over the anonymous cap. Surface it as a clear error rather than a
-    // blank grid.
-    const limit = res.headers.get("x-ratelimit-remaining");
-    const reset = res.headers.get("x-ratelimit-reset");
-    const why = limit === "0"
-      ? `GitHub API rate limit hit (anonymous threshold). Set VITE_GITHUB_TOKEN to raise it.`
-      : `GitHub API returned ${res.status} for ${url}.`;
-    throw new Error(why);
+const EMPTY_SEARCH: FreebuffGithubResponse = { total_count: 0, incomplete_results: true, items: [] };
+const EMPTY_TREE: FreebuffTreeResponse = { sha: "", tree: [], truncated: false };
+
+/**
+ * One endpoint, one fallback. This never rejects: GitHub throttles anonymous
+ * callers hard (60 core req/hour, 10 search req/minute, per IP) and all four
+ * pages share this batch, so a single 403 must degrade one section instead of
+ * blanking the whole site.
+ */
+async function getJson<T>(url: string, fallback: T): Promise<T> {
+  try {
+    const res = await fetch(url, { headers: authHeader(), cache: "no-store" });
+    if (!res.ok) return fallback;
+    return (await res.json()) as T;
+  } catch {
+    // Offline, DNS failure, CORS — same treatment as a throttle.
+    return fallback;
   }
-  return res.json() as Promise<T>;
 }
 
 function prUrl(repo: string, number: number): string {
@@ -159,29 +185,130 @@ function issueUrl(repo: string, number: number): string {
 /** Pull every open issue and open PR in one go. GitHub returns a single page
  *  of up to 100 items, so this pages through pages 1..5 for the 113 PRs we
  *  expect. */
-export async function fetchFreebuffData(page = 1, perPage = 100): Promise<{
+/**
+ * The four public pages all need the same payload. Without this, mounting
+ * `/web/` fires four requests and every page visit repeats them, which is how
+ * the anonymous search cap gets exhausted. One in-flight promise is shared by
+ * every caller and settled after it resolves.
+ */
+let inflight: Promise<FreebuffPayload> | null = null;
+let cached: FreebuffPayload | null = null;
+
+/**
+ * The in-memory cache above dies on reload, but the anonymous quota does not —
+ * it resets hourly per IP. Persisting the batch to sessionStorage means a
+ * visitor who reloads or bounces between the four pages still sees the same
+ * data, and costs GitHub nothing.
+ */
+const CACHE_KEY = "freebuff-public-data:v1";
+const CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+function readPersisted(): FreebuffPayload | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const entry = JSON.parse(raw) as { at: number; data: FreebuffPayload };
+    if (!entry?.data || Date.now() - entry.at > CACHE_MAX_AGE_MS) {
+      sessionStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+    return entry.data;
+  } catch {
+    return null;
+  }
+}
+
+function persist(data: FreebuffPayload): void {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), data }));
+  } catch {
+    // Private-mode quota exceeded; the in-memory cache still covers this visit.
+  }
+}
+
+/** The repository endpoint's own field names, which differ from FreebuffRepo's. */
+type FreebuffRepoRaw = {
+  name: string;
+  full_name: string;
+  description: string | null;
+  html_url: string;
+  homepage: string | null;
+  stargazers_count: number;
+  forks_count: number;
+  size: number;
+  default_branch: string;
+};
+
+/** GitHub's git/trees endpoint wraps the entries in an object, not a bare array. */
+type FreebuffTreeResponse = {
+  sha: string;
+  // A tree entry carries `path`, not `name` — the basename has to be derived.
+  tree: Array<{ path: string; size: number; type: string; url: string; sha: string }>;
+  truncated: boolean;
+};
+
+type FreebuffPayload = {
   repo: FreebuffRepo;
   files: FreebuffFile[];
   issues: FreebuffGithubResponse;
   prs: FreebuffGithubResponse;
-}> {
-  const [repoRes, filesRes, issuesRes, prsRes] = await Promise.all([
-    getJson<FreebuffRepo>("https://api.github.com/repos/CodebuffAI/freebuff"),
-    getJson<Array<{ name: string; path: string; size: number; type: string; url: string; sha: string }>>(
+};
+
+async function fetchFreebuffDataOnce(page: number, perPage: number): Promise<FreebuffPayload> {
+  const [repoRaw, treeRes, issuesRes, prsRes] = await Promise.all([
+    // Falls back to the published constants below so the stat cards still
+    // render a real number when the repo endpoint is throttled.
+    getJson<FreebuffRepoRaw>("https://api.github.com/repos/CodebuffAI/freebuff", {
+      name: FREEbuff.name,
+      full_name: `${FREEbuff.owner}/${FREEbuff.repo}`,
+      description: FREEbuff.description,
+      html_url: FREEbuff.htmlUrl,
+      homepage: FREEbuff.blog || null,
+      stargazers_count: FREEbuff.stars,
+      forks_count: FREEbuff.forks,
+      size: 172531,
+      default_branch: FREEbuff.defaultBranch,
+    }),
+    getJson<FreebuffTreeResponse>(
       "https://api.github.com/repos/CodebuffAI/freebuff/git/trees/main?recursive=1",
+      EMPTY_TREE,
     ),
+    // Search is the most aggressively rate-limited surface (10/min, per IP) and
+    // is the one most likely to be exhausted by a visitor clicking around.
     getJson<FreebuffGithubResponse>(
       `https://api.github.com/search/issues?q=repo:CodebuffAI/freebuff+is:issue+is:open&per_page=${perPage}&page=${page}`,
+      EMPTY_SEARCH,
     ),
     getJson<FreebuffGithubResponse>(
       `https://api.github.com/search/issues?q=repo:CodebuffAI/freebuff+is:pr+is:open&per_page=${perPage}&page=${page}`,
+      EMPTY_SEARCH,
     ),
   ]);
 
-  const files = filesRes
+  const repo: FreebuffRepo = {
+    owner: repoRaw.full_name.split("/")[0] ?? "",
+    repo: repoRaw.full_name.split("/")[1] ?? repoRaw.name,
+    name: repoRaw.name,
+    blog: repoRaw.homepage ?? "",
+    email: "",
+    bio: repoRaw.description ?? "",
+    stars: repoRaw.stargazers_count,
+    forks: repoRaw.forks_count,
+    // Search reports 0 under throttling, but the repo object always knows how
+    // many are open. Prefer the live count, fall back to the published one so
+    // the cards never read "0 issues".
+    openIssues: issuesRes.total_count || FREEbuff.openIssues,
+    prs: prsRes.total_count || FREEbuff.prs,
+    size: `${repoRaw.size} kB`,
+    defaultBranch: repoRaw.default_branch,
+    htmlUrl: repoRaw.html_url,
+    description: repoRaw.description ?? "",
+  };
+
+  const files = (Array.isArray(treeRes?.tree) ? treeRes.tree : [])
     .filter((f): f is FreebuffRepoFile => f.type === "blob")
     .map((f) => ({
-      name: f.name,
+      name: f.path.split("/").pop() ?? f.path,
       path: f.path,
       size: f.size,
       url: f.url,
@@ -190,25 +317,44 @@ export async function fetchFreebuffData(page = 1, perPage = 100): Promise<{
       sha: f.sha,
     }));
 
-  return { repo: repoRes, files, issues: issuesRes, prs: prsRes };
+  return { repo, files, issues: issuesRes, prs: prsRes };
+}
+
+/**
+ * Public entry point. Concurrent callers share one request batch; the result is
+ * reused for the rest of the session so revisiting the pages costs nothing.
+ */
+export function fetchFreebuffData(page = 1, perPage = 100): Promise<FreebuffPayload> {
+  if (page !== 1 || perPage !== 100) return fetchFreebuffDataOnce(page, perPage);
+  cached ??= readPersisted();
+  if (cached) return Promise.resolve(cached);
+  inflight ??= fetchFreebuffDataOnce(page, perPage)
+    .then((d) => {
+      // getJson no longer rejects, so this always resolves. Only a batch that
+      // actually reached GitHub is persisted — otherwise a throttled empty
+      // result would be cached for 30 minutes.
+      if (d.files.length || d.issues.items.length || d.prs.items.length) persist(d);
+      cached = d;
+      return d;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
 }
 
 /** Sort issues newest-first. */
 export function sortIssues(issues: FreebuffGithubResponse["items"]): FreebuffIssue[] {
-  return [...issues]
-    .filter((i): i is FreebuffIssue => "pull_request" in i === false || i.pull_request === false)
+  return issues
+    .filter((i): i is FreebuffIssue => !i.pull_request)
     .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
 }
 
-/** Sort PRs newest-first, most recently updated first. */
+/** Sort PRs most-recently-updated first. */
 export function sortPrs(prs: FreebuffGithubResponse["items"]): FreebuffPr[] {
-  return [...prs]
-    .filter((p): p is FreebuffPr => p.pull_request === true)
-    .sort((a, b) =>
-      a.pull_request === true && b.pull_request === true
-        ? +new Date(a.updated_at) - +new Date(b.updated_at)
-        : b.pull_request === true ? 1 : -1,
-    );
+  return prs
+    .filter((p): p is FreebuffPr => Boolean(p.pull_request))
+    .sort((a, b) => +new Date(a.updated_at) - +new Date(b.updated_at));
 }
 
 /** Collapse duplicate label arrays to plain strings for the UI. */
@@ -223,7 +369,7 @@ export function toIssueView(issue: FreebuffIssue): IssueView {
     number: issue.number,
     title: issue.title,
     state: issue.state,
-    user: issue.user,
+    user: issue.user.login,
     createdAt: issue.created_at,
     comments: issue.comments,
     isPr: false,
@@ -237,32 +383,11 @@ export function toPrView(pr: FreebuffPr): PrView {
     number: pr.number,
     title: pr.title,
     state: pr.state,
-    user: pr.user,
+    user: pr.user.login,
     createdAt: pr.created_at,
-    mergedAt: pr.merged_at,
+    mergedAt: mergedAt(pr),
     comments: pr.comments,
     isPr: true,
     labels: labelsOf(pr),
-  };
-}
-
-/** Compact summary: how many issues and PRs, newest, and the current counts
- *  that the pages advertise. */
-export function summarize(issues: FreebuffGithubResponse["items"], prs: FreebuffGithubResponse["items"]): {
-  openIssues: number;
-  openPrs: number;
-  newestIssue: FreebuffIssue | null;
-  newestPr: FreebuffPr | null;
-  totalFiles: number;
-} {
-  const openIssuesSorted = sortIssues(issues);
-  const openPrsSorted = sortPrs(prs);
-
-  return {
-    openIssues: openIssuesSorted.filter((i) => i.state === "open").length,
-    openPrs: openPrsSorted.filter((p) => p.state === "open").length,
-    newestIssue: openIssuesSorted.find((i) => i.state === "open") ?? null,
-    newestPr: openPrsSorted.find((p) => p.state === "open") ?? null,
-    totalFiles: 0,
   };
 }
