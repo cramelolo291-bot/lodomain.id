@@ -8,7 +8,7 @@
 // pruning pass that drops menus and footers so the model sees the article, not
 // the chrome.
 
-import { decodeEntities, parse, textOf, isHeadTag, isLayoutTag, attrOf, matches, textOf } from "./dom";
+import { decodeEntities, parse, isHeadTag, isLayoutTag, attrOf, matches } from "./dom";
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ export function toText(html: string): string {
   if (!root) return "";
   return decodeEntities(collapse(textOf(root))).replace(/\s{2,}/g, " ");
 }
-function nodeToMarkdown(node: typeof parse(""), baseUrl: string, links: string[]): string {
+function nodeToMarkdown(node: typeof parse, baseUrl: string, links: string[]): string {
 
   if (node.tag === "text") return escapeText(node.text);
 
@@ -142,8 +142,7 @@ function nodeToMarkdown(node: typeof parse(""), baseUrl: string, links: string[]
         .map((l) => l.trim())
         .filter(Boolean)
         .join("\n");
-      return cleaned ? "> " + collapse(cleaned).replace(/
-/g, "\n> ") + "\n\n" : "";
+      return cleaned ? "> " + collapse(cleaned).replace(/\n/g, "\n> ") + "\n\n" : "";
     }
     case "hr":
       return "\n---\n\n";

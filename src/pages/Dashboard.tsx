@@ -288,6 +288,9 @@ export default function Dashboard() {
                   items={(STATIC.languages.map((l) => ({
                     name: l.name,
                     value: l.size,
+                  })) as Array<{ name: string; value: number; color: string }>)
+                }
+                  valueKey="size"
                     color: l.color,
                   })) as Array<{ name: string; value: number; color: string }>)
                   valueKey="size"

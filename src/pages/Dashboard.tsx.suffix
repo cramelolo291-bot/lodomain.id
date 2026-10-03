@@ -1,0 +1,110 @@
+  return (
+    <AppShell>
+      <div className="mx-auto w-full max-w-[1200px] px-5 pb-24 pt-10 sm:px-8 sm:pt-14">
+        {/* Hub */}
+        <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="mono-label mb-2 font-mono text-[11px] tracking-[0.1em] text-ink-4 uppercase">
+              public analytics
+            </p>
+            <h1 className="display mt-2 text-[clamp(32px,5vw,62px)] leading-[1.08] text-ink-1">
+              <span className="mr-2 font-mono text-[12px] tracking-[0.14em] text-ember]">/CodebuffAI</span>
+              freebuff
+            </h1>
+            <p className="mt-3 max-w-[56ch] text-[14.5px] leading-[1.75] text-ink-2">
+              Published metrics about the repo: stars, forks, open issues, draft
+              pull requests, language mix and the people watching it grow.
+              Nothing here is written; everything is read from the public API.
+            </p>
+          </div>
+          <Link to="/" className="btn-ghost">
+            <Eye className="size-3.5" />
+            back to home
+          </Link>
+        </div>
+
+        {loading ? (
+          <div className="flex min-h-[280px] items-center justify-center">
+            <span className="font-mono text-[12px] text-ink-4 animate-pulse">loading metrics…</span>
+          </div>
+        ) : (
+          <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
+            {/* Left: primary metrics */}
+            <div className="space-y-6">
+              <div className="grid gap-px overflow-hidden rounded-[16px] border border-border bg-border">
+                <div className="grid grid-cols-2 gap-4 p-6 sm:grid-cols-4">
+                  <StatCard
+                    label="stars"
+                    value={fmt(stars)}
+                    sub="on github"
+                    icon={<Star className="size-4 text-amber-500" />}
+                    accent="amber"
+                  />
+                  <StatCard
+                    label="forks"
+                    value={fmt(forks)}
+                    sub="copies of the repo"
+                    icon={<GitRepository className="size-4 text-[#5a6b7a]" />}
+                    accent="ink"
+                  />
+                  <StatCard
+                    label="open issues"
+                    value={String(openIssues)}
+                    sub="still reported"
+                    icon={<GitBranch className="size-4 text-[#9db4a8]" />}
+                    accent="teal"
+                  />
+                  <StatCard
+                    label="open prs"
+                    value={String(openPrs)}
+                    sub="drafts in flight"
+                    icon={<GitBranchPlus className="size-4 text-ember" />}
+                    accent="ember"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="panel p-6">
+                  <h2 className="flex items-center gap-2 font-semibold text-ink-1">
+                    <Star className="size-4 text-amber-500" />
+                    growth
+                  </h2>
+                  <p className="mt-2 font-mono text-[12px] text-ink-4">{STATIC.starsDelta}</p>
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-3">
+                    <div className="h-full rounded-full bg-amber-500" />
+                  </div>
+                  <p className="mt-3 font-mono text-[11px] text-ink-4">total stars {fmt(STATIC.totalStars)}</p>
+                </div>
+
+                <div className="panel p-6">
+                  <h2 className="flex items-center gap-2 font-semibold text-ink-1">
+                    <Users className="size-4 text-[#5a6b7a]" />
+                    community
+                  </h2>
+                  <p className="mt-2 font-mono text-[12px] text-ink-4">{STATIC.contributors} contributors</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {STATIC.languages.slice(0, 4).map((l) => (
+                      <span key={l.name} className="font-mono text-[10px] text-ink-4">{l.name}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: languages + activity */}
+            <div className="space-y-6">
+              <div className="panel p-6">
+                <h2 className="flex items-center gap-2 font-semibold text-ink-1">
+                  <Code2 className="size-4 text-ember" />
+                  language mix
+                </h2>
+                <BarChart
+                  items={(STATIC.languages.map((l) => ({                  items={(STATIC.languages.map((l) => ({
+                    name: l.name,
+                    value: l.size,
+                  })) as Array<{ name: string; value: number; color: string }>)
+                  valueKey="size"
+                  valueFormat={(v) => fmt(v) + " kB"}
+                />
+                <p className="mt-3 font-mono text-[11px] text-ink-4">{STATIC.languages.length} languages tracked</p>
