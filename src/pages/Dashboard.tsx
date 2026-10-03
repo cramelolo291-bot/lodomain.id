@@ -1,15 +1,12 @@
-// freebuff Dashboard — the public analytics view of the CodebuffAI/freebuff
-// repo.
+// Public analytics view of the upstream browser-agent repo.
 //
 // A read-only dashboard that reads the published GitHub metrics: stars, forks,
-// open issues, in-flight pull requests, language breakdown, and the top social
-// metrics from the repo's own public pages. No auth, no keys, no writes. This
-// route is intentionally unauthenticated and remote from the freebuff/ source
-// folder.
+// open issues, in-flight pull requests, and a language breakdown computed from
+// the real file tree. No auth, no keys, no writes. This route is intentionally
+// unauthenticated and remote from the repo's source folder.
 //
-// All counts below are the ones published in late 2026 by
-// CodebuffAI/freebuff: 13,100 stars, 1,399 forks, 310 open issues and 113 open
-// PRs.
+// The counts here are the published values for browser-use/jev-ultrafast:
+// 21,823 stars, 1,552 forks, 40 open issues and 142 open PRs.
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -30,34 +27,63 @@ import {
   Users,
   GitFork,
 } from "lucide-react";
-import { fetchFreebuffData, type FreebuffRepo } from "@/lib/frebbuff-data";
+import { fetchFreebuffData, FREEbuff, type FreebuffFile, type FreebuffRepo } from "@/lib/frebbuff-data";
 
 // Static published metrics, used so the page renders at first paint. The
-// fetch below refreshes these from the live GitHub API.
+// fetch below refreshes the counts from the live GitHub API.
+//
+// `languages` is deliberately absent: the real per-language mix is computed
+// from the fetched file tree below rather than hardcoded, so it always matches
+// the repo instead of going stale.
 const STATIC = {
-  stars: 13100,
-  forks: 1399,
-  openIssues: 310,
-  openPrs: 113,
-  totalStars: 13100,
-  totalForks: 1399,
-  watchers: 12890,
-  contributors: 128,
-  releases: 34,
-  lastRelease: "2026-09-28",
-  languages: [
-    { name: "TypeScript", size: 1128, color: "bg-[#2b7a5a]" },
-    { name: "Cargo", size: 502, color: "bg-[#ea9123]" },
-    { name: "Python", size: 388, color: "bg-[#3572A5]" },
-    { name: "Rust", size: 96, color: "bg-[#dea584]" },
-    { name: "HTML", size: 118, color: "bg-[#e34c26]" },
-    { name: "Bash", size: 84, color: "bg-[#4e5652]" },
-  ] as const,
-  // growth deltas, published by GitHub's community metrics.
-  starsDelta: "+342 this week",
-  forksDelta: "+17 this week",
-  issuesDelta: "+4 this week",
+  stars: FREEbuff.stars,
+  forks: FREEbuff.forks,
+  openIssues: FREEbuff.openIssues,
+  openPrs: FREEbuff.prs,
+  totalStars: FREEbuff.stars,
+  totalForks: FREEbuff.forks,
+  contributors: 87,
 };
+
+/** Display colour per file extension. */
+const LANG_COLORS: Record<string, string> = {
+  py: "bg-[#3572A5]",
+  md: "bg-[#2b7a5a]",
+  json: "bg-[#b388ff]",
+  js: "bg-[#dea584]",
+  html: "bg-[#e34c26]",
+  css: "bg-[#563d7c]",
+  toml: "bg-[#9c4221]",
+  lock: "bg-[#5a6b7a]",
+  svg: "bg-[#ff9900]",
+};
+
+/** Extensions that are source or markup rather than binary assets. */
+const CODE_EXTS = new Set(["py", "md", "json", "js", "html", "css", "toml", "lock", "svg", "yml", "yaml", "sh", "example"]);
+
+/** Group a repo's files into a size-by-extension mix, biggest first. */
+function languageMix(files: FreebuffFile[]): Array<{ name: string; size: number; color: string }> {
+  const totals = new Map<string, number>();
+  for (const f of files) {
+    const dot = f.name.lastIndexOf(".");
+    // Dotfiles (".gitignore") have no extension, and `uv.lock` has none either.
+    const ext = dot > 0 ? f.name.slice(dot + 1).toLowerCase() : "";
+    // Demo screenshots and videos dominate this repo's byte count but say
+    // nothing about what it is written in, so the chart counts code only.
+    if (!ext || !CODE_EXTS.has(ext)) continue;
+    totals.set(ext, (totals.get(ext) ?? 0) + f.size);
+  }
+  return [...totals]
+    .map(([ext, size]) => ({
+      name: ext === "lock" ? "Lockfile" : ext === "py" ? "Python" : ext === "md" ? "Markdown"
+        : ext === "js" ? "JavaScript" : ext === "html" ? "HTML" : ext === "css" ? "CSS"
+        : ext === "json" ? "JSON" : ext === "toml" ? "TOML" : ext === "svg" ? "SVG"
+        : ext.toUpperCase(),
+      size,
+      color: LANG_COLORS[ext] ?? "bg-[#5a6b7a]",
+    }))
+    .sort((a, b) => b.size - a.size);
+}
 
 function fmt(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -130,6 +156,7 @@ export default function Dashboard() {
   const [forks, setForks] = useState(STATIC.forks);
   const [openIssues, setOpenIssues] = useState(STATIC.openIssues);
   const [openPrs, setOpenPrs] = useState(STATIC.openPrs);
+  const [files, setFiles] = useState<FreebuffFile[]>([]);
   const [loading, setLoading] = useState(true);
   const cancelledRef = useRef(false);
 
@@ -143,7 +170,7 @@ export default function Dashboard() {
   useEffect(() => {
     // The dashboard is public and read-only: it reads the published GitHub
     // numbers and renders them, it does not write anywhere and it never
-    // touches the freebuff/ source folder.
+    // touches the repo's source folder.
     //
     // This goes through the shared fetcher rather than its own requests so all
     // four public pages share one in-flight batch and one sessionStorage entry.
@@ -157,17 +184,19 @@ export default function Dashboard() {
         setForks(repo.forks);
         setOpenIssues(repo.openIssues);
         setOpenPrs(repo.prs);
+        setFiles(d.files);
       }
       setLoading(false);
     })();
   }, []);
 
-  const languages = STATIC.languages.map((l) => ({
+  const mix = languageMix(files);
+  const totalBytes = mix.reduce((s, l) => s + l.size, 0);
+  const languages = mix.map((l) => ({
     ...l,
-    value: Math.round((l.size / STATIC.languages.reduce((s, x) => s + x.size, 0)) * 100),
+    value: totalBytes ? Math.round((l.size / totalBytes) * 100) : 0,
   }));
-
-  const totalFiles = STATIC.languages.reduce((s, l) => s + l.size, 0);
+  const totalFiles = files.length;
 
   return (
     <AppShell>
@@ -179,13 +208,13 @@ export default function Dashboard() {
               public analytics
             </p>
             <h1 className="display mt-2 text-[clamp(32px,5vw,62px)] leading-[1.08] text-ink-1">
-              <span className="mr-2 font-mono text-[12px] tracking-[0.14em] text-ember]">/CodebuffAI</span>
-              freebuff
+              <span className="mr-2 font-mono text-[12px] tracking-[0.14em] text-ember]">/browser-use</span>
+              jev-ultrafast
             </h1>
             <p className="mt-3 max-w-[56ch] text-[14.5px] leading-[1.75] text-ink-2">
               Published metrics about the repo: stars, forks, open issues, draft
-              pull requests, language mix and the people watching it grow.
-              Nothing here is written; everything is read from the public API.
+              pull requests, the code mix and the people behind it. Nothing
+              here is written; everything is read from the public API.
             </p>
           </div>
           <Link to="/" className="btn-ghost">
@@ -241,7 +270,7 @@ export default function Dashboard() {
                     <Star className="size-4 text-amber-500" />
                     growth
                   </h2>
-                  <p className="mt-2 font-mono text-[12px] text-ink-4">{STATIC.starsDelta}</p>
+                  <p className="mt-2 font-mono text-[12px] text-ink-4">{fmt(stars)} stars · {fmt(forks)} forks</p>
                   <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-3">
                     <div className="h-full rounded-full bg-amber-500" />
                   </div>
@@ -255,7 +284,7 @@ export default function Dashboard() {
                   </h2>
                   <p className="mt-2 font-mono text-[12px] text-ink-4">{STATIC.contributors} contributors</p>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {STATIC.languages.slice(0, 4).map((l) => (
+                    {languages.slice(0, 4).map((l) => (
                       <span key={l.name} className="font-mono text-[10px] text-ink-4">{l.name}</span>
                     ))}
                   </div>
@@ -268,39 +297,44 @@ export default function Dashboard() {
               <div className="panel p-6">
                 <h2 className="flex items-center gap-2 font-semibold text-ink-1">
                   <Code2 className="size-4 text-ember" />
-                  language mix
+                  code mix
                 </h2>
                 <BarChart
-                  items={(STATIC.languages.map((l) => ({
+                  items={(languages.map((l) => ({
                     name: l.name,
-                    value: l.size,
+                    value: l.value,
+                    color: l.color,
                   })) as Array<{ name: string; value: number; color: string }>)}
                   valueKey="value"
-                  valueFormat={(v) => fmt(v) + " kB"}
+                  valueFormat={(v) => v + "%"}
                 />
-                <p className="mt-3 font-mono text-[11px] text-ink-4">{STATIC.languages.length} languages tracked</p>
+                <p className="mt-3 font-mono text-[11px] text-ink-4">
+                  {languages.length} file types · measured from {totalFiles} tracked files
+                </p>
               </div>
 
               <div className="grid gap-px overflow-hidden rounded-[16px] border border-border bg-border">
                 <div className="grid grid-cols-2 gap-4 p-6 sm:grid-cols-4">
                   <div className="text-center">
-                    <p className="font-mono text-[11px] text-ink-4">releases</p>
-                    <p className="display mt-1 text-[26px] leading-none text-ember">{STATIC.releases}</p>
-                    <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">{STATIC.lastRelease}</p>
+                    <p className="font-mono text-[11px] text-ink-4">open issues</p>
+                    <p className="display mt-1 text-[26px] leading-none text-ember]">{fmt(openIssues)}</p>
+                    <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">awaiting triage</p>
                   </div>
                   <div className="text-center">
-                    <p className="font-mono text-[11px] text-ink-4">watchers</p>
-                    <p className="display mt-1 text-[26px] leading-none text-amber-500">{fmt(STATIC.watchers)}</p>
-                    <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">people watching</p>
+                    <p className="font-mono text-[11px] text-ink-4">open PRs</p>
+                    <p className="display mt-1 text-[26px] leading-none text-amber-500">{fmt(openPrs)}</p>
+                    <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">in flight</p>
                   </div>
                   <div className="text-center">
-                    <p className="font-mono text-[11px] text-ink-4">total files</p>
-                    <p className="display mt-1 text-[26px] leading-none text-[#9db4a8]">{fmt(totalFiles)} KB</p>
-                    <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">1,868 files across 196 dirs</p>
+                    <p className="font-mono text-[11px] text-ink-4">files</p>
+                    <p className="display mt-1 text-[26px] leading-none text-[#9db4a8]">{fmt(totalFiles)}</p>
+                    <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">
+                      {fmt(Math.round(totalBytes / 1024))} KB tracked
+                    </p>
                   </div>
                   <div className="text-center">
-                    <p className="font-mono text-[11px] text-ink-4">last update</p>
-                    <p className="display mt-1 text-[26px] leading-none text-[#4aa06e]">{STATIC.lastRelease}</p>
+                    <p className="font-mono text-[11px] text-ink-4">largest type</p>
+                    <p className="display mt-1 text-[26px] leading-none text-[#4aa06e]">{mix[0]?.name ?? "—"}</p>
                     <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">from the GitHub API</p>
                   </div>
                 </div>

@@ -1,9 +1,9 @@
-// freebuff Panel — the public issues & PRs dashboard.
+// Public issues & PRs dashboard.
 //
 // A single read-only surface for the public repo state: the open issues and
 // draft pull requests in one list, the top contributors, the label breakdown
 // and the oldest-open threads. Everything is fetched from the GitHub REST API
-// and nothing is written, cached in the freebuff/ folder, or fed through the
+// and nothing is written, cached in the repo folder, or fed through the
 // existing api.ts seam.
 //
 // Public route: no auth, no keys, no backend.
@@ -336,8 +336,8 @@ export default function Panel({ issues, prs }: Props) {
                 public dashboard
               </p>
               <h1 className="display mt-2 text-[clamp(32px,5vw,62px)] leading-[1.08] text-ink-1">
-                <span className="mr-2 font-mono text-[12px] tracking-[0.14em] text-ember]">/CodebuffAI</span>
-                freebuff
+                <span className="mr-2 font-mono text-[12px] tracking-[0.14em] text-ember]">/browser-use</span>
+                jev-ultrafast
               </h1>
               <p className="mt-3 max-w-[56ch] text-[14.5px] leading-[1.75] text-ink-2">
                 The public repo state: open issues, draft pull requests, labels,

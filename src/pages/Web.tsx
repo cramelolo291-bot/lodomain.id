@@ -1,8 +1,8 @@
-// freebuff Web — a public, read-only window onto the CodebuffAI/freebuff repo.
+// Public, read-only window onto the upstream browser-agent repo.
 //
 // Visitors see the repo tree, language breakdown and the open issue / PR list
 // without a token and without signing in. The page fetches from the GitHub
-// REST API and never touches the freebuff/ source folder, the existing api.ts
+// REST API and never touches the repo's source folder, the existing api.ts
 // seam, or any backend command. This route is intentionally unauthenticated.
 
 import { Link } from "react-router";
@@ -23,27 +23,6 @@ import {
 } from "lucide-react";
 import type { FreebuffRepo, FreebuffFile, FreebuffGithubResponse } from "@/lib/frebbuff-data";
 
-// static appliance of the repo's own metadata, so the page renders at first
-// paint and re-fetches the live numbers from GitHub afterwards. The values are
-// the ones published by `CodebuffAI/freebuff` in late 2026.
-const STATIC_REPO: FreebuffRepo = {
-  owner: "CodebuffAI",
-  repo: "freebuff",
-  name: "Freebuff",
-  blog: "https://freebuff.com",
-  email: "hello@codebuff.com",
-  bio: "The free coding agent",
-  stars: 13100,
-  forks: 1399,
-  openIssues: 310,
-  prs: 113,
-  size: "172 MB",
-  defaultBranch: "main",
-  htmlUrl: "https://github.com/CodebuffAI/freebuff",
-  description:
-    "A free, self-hosted coding agent with a deterministic guardrail layer, a pooled model router and a per-project data space.",
-};
-
 const LABEL_COLORS: Record<string, string> = {
   bug: "bg-[#c85a50] text-white",
   enhancement: "bg-[#4aa06e] text-white",
@@ -61,6 +40,11 @@ function labelClass(name: string): string {
 
 import { useEffect, useState, useMemo } from "react";
 import { fetchFreebuffData, sortIssues, sortPrs, FREEbuff } from "@/lib/frebbuff-data";
+
+// Static copy of the repo's own metadata, so the page renders at first paint
+// and re-fetches the live numbers from GitHub afterwards. The identity and the
+// fallback numbers live in the data layer so all four public pages agree.
+const STATIC_REPO: FreebuffRepo = FREEbuff;
 
 export default function Web() {
   const [data, setData] = useState<Awaited<ReturnType<typeof fetchFreebuffData>> | null>(
@@ -124,15 +108,15 @@ export default function Web() {
             </p>
             <h1 className="display mt-2 text-[clamp(32px,5vw,62px)] leading-[1.08] text-ink-1">
               <span className="mr-2 font-mono text-[12px] tracking-[0.14em] text-ember]">
-                /CodebuffAI
+                /browser-use
               </span>
-              freebuff
+              jev-ultrafast
             </h1>
             <p className="mt-3 max-w-[56ch] text-[14.5px] leading-[1.75] text-ink-2">
-              The free coding agent. Everything here is read-only: the tree of
-              files, the open issues, and the draft pull requests. No auth, no
-              keys, no writes — just the public shape of the thing that runs
-              your own agents.
+              A browser agent with a dynamic, indexed action space. Everything
+              here is read-only: the tree of files, the open issues, and the
+              draft pull requests. No auth, no keys, no writes — just the public
+              shape of the agent.
             </p>
           </div>
 
@@ -278,7 +262,7 @@ export default function Web() {
                 {filteredIssues.map((i) => (
                   <Link
                     key={i.number}
-                    to={`https://github.com/CodebuffAI/freebuff/issues/${i.number}`}
+                    to={`${repo.htmlUrl}/issues/${i.number}`}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-start gap-3 rounded-[10px] p-2.5 transition-colors hover:bg-surface-2"
@@ -313,7 +297,7 @@ export default function Web() {
                 {filteredPrs.map((p) => (
                   <Link
                     key={p.number}
-                    to={`https://github.com/CodebuffAI/freebuff/pull/${p.number}`}
+                    to={`${repo.htmlUrl}/pull/${p.number}`}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-start gap-3 rounded-[10px] p-2.5 transition-colors hover:bg-surface-2"

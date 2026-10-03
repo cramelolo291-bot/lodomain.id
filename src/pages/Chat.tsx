@@ -1,10 +1,10 @@
-// freebuff Chat — a public, discussion-style view of the open issues and pull
-// requests in the CodebuffAI/freebuff repo.
+// Public, discussion-style view of the open issues and pull requests in the
+// upstream browser-agent repo.
 //
 // This is a chat UI, but the audience is the open thread, not a signed-in user.
 // Each issue or PR is a thread you can browse; the list is filtered by the
 // search box, and clicking one opens the thread detail. The page is public and
-// read-only: no auth, no writes, no writes to the backend, no freebuff/ source
+// read-only: no auth, no writes, no writes to the backend, no repo source
 // folder access, and no dependency on the existing api.ts seam.
 //
 // All data is pulled from the GitHub REST API.
@@ -354,7 +354,7 @@ export default function Chat({ threads: seeded }: Props) {
                 </svg>
               </div>
               <span className="text-[14px] font-medium tracking-tight text-ink-1">
-                freebuff
+                jev-ultrafast
               </span>
             </Link>
           </div>
@@ -429,12 +429,12 @@ export default function Chat({ threads: seeded }: Props) {
                 {/* placeholder thread body */}
                 <div className="space-y-4">
                   <h1 className="display text-[28px] leading-[1.15] text-ink-1">
-                    welcome to freebuff
+                    welcome to jev-ultrafast
                   </h1>
                   <p className="max-w-[46ch] text-[14px] leading-[1.7]">
-                    This public chat is the open threads of CodebuffAI/freebuff.
-                    The detail view for the active thread is shown in the left
-                    rail.
+                    This public chat is the open threads of
+                    browser-use/jev-ultrafast. The detail view for the active
+                    thread is shown in the left rail.
                   </p>
                 </div>
               </div>
@@ -451,7 +451,7 @@ export default function Chat({ threads: seeded }: Props) {
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <span className="font-mono text-[11px] text-ember">#</span>
                     <input
-                      placeholder="github.com/CodebuffAI/freebuff/issues/123"
+                      placeholder="github.com/browser-use/jev-ultrafast/issues/123"
                       className="flex-1 bg-transparent font-mono text-[12px] text-ink-2 outline-none placeholder:text-ink-4"
                     />
                     <button
@@ -472,11 +472,11 @@ export default function Chat({ threads: seeded }: Props) {
                 <MessageSquare className="size-7 text-ember" />
               </div>
               <h1 className="display mt-6 text-[34px] text-ink-1">
-                freebuff Chat
+                jev-ultrafast Chat
               </h1>
               <p className="mt-3 max-w-[46ch] text-[14px] leading-[1.75] text-ink-3">
-                The public threads of CodebuffAI/freebuff, open for anyone to
-                read. The left rail holds the list; this panel is the detail
+                The public threads of browser-use/jev-ultrafast, open for anyone
+                to read. The left rail holds the list; this panel is the detail
                 view of whichever thread you pick.
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-3">

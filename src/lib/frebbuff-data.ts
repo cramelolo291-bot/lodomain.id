@@ -1,15 +1,15 @@
-// freebuff repo data layer.
+// Repository data layer for the public Lolo agent pages.
 //
-// Public, read-only metadata about CodebuffAI/freebuff, fetched from the GitHub
-// API. This is used by the public /web/, /chat/, /panel/ and /dashboard/
-// pages so visitors can browse the repository, its open issues and its PRs
-// without signing in.
+// Public, read-only metadata about the upstream agent repo, fetched from the
+// GitHub API. This is used by the public /web/, /chat/, /panel/ and
+// /dashboard/ pages so visitors can browse the repository, its open issues and
+// its PRs without signing in.
 //
 // The value is the GitHub REST API, not a proxy: every endpoint here is a
 // plain fetch against github.com so the page can cache, re-fetch and display
 // the numbers the owner publishes. Nothing in this module reads or writes the
-// freebuff/ source folder in the repo, and nothing it returns is fed into the
-// existing api.ts seam.
+// repo's source folder, and nothing it returns is fed into the existing
+// api.ts seam.
 
 export type FreebuffRepo = {
   owner: string;
@@ -100,22 +100,31 @@ export type FreebuffGithubResponse = {
 
 // ── Plucked from the GitHub API at build time ─────────────────────────────
 
+/**
+ * The upstream repository these pages describe. Every endpoint in this module
+ * is built from this, so pointing the pages at a different repo is a one-line
+ * change here rather than an edit across the four pages.
+ */
+export const REPO_SLUG = "browser-use/jev-ultrafast" as const;
+const API = `https://api.github.com/repos/${REPO_SLUG}`;
+const WEB = `https://github.com/${REPO_SLUG}`;
+
 export const FREEbuff: FreebuffRepo = {
-  owner: "CodebuffAI",
-  repo: "freebuff",
-  name: "Freebuff",
-  blog: "https://freebuff.com",
-  email: "hello@codebuff.com",
-  bio: "The free coding agent",
-  stars: 13100,
-  forks: 1399,
-  openIssues: 310,
-  prs: 113,
-  size: "172 MB",
+  owner: "browser-use",
+  repo: "jev-ultrafast",
+  name: "Jev Ultrafast",
+  blog: "https://browser-use.com",
+  email: "",
+  bio: "A browser agent with a dynamic, indexed action space",
+  stars: 21823,
+  forks: 1552,
+  openIssues: 40,
+  prs: 142,
+  size: "4.4 MB",
   defaultBranch: "main",
-  htmlUrl: "https://github.com/CodebuffAI/freebuff",
+  htmlUrl: WEB,
   description:
-    "A free, self-hosted coding agent with a deterministic guardrail layer, a pooled model router and a per-project data space. Public data about the repo and its open issues/PRs is served from these pages.",
+    "A browser agent with a dynamic, indexed action space: give it one goal and it picks an operation and an element, writing text only when the operation is TYPE_TEXT. Public data about the repo and its open issues/PRs is served from these pages.",
 };
 
 /** Tabular view of the open issues, used to render the issue list. */
@@ -200,7 +209,7 @@ let cached: FreebuffPayload | null = null;
  * visitor who reloads or bounces between the four pages still sees the same
  * data, and costs GitHub nothing.
  */
-const CACHE_KEY = "freebuff-public-data:v1";
+const CACHE_KEY = `${REPO_SLUG}:public-data:v1`;
 const CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 
 function readPersisted(): FreebuffPayload | null {
@@ -258,7 +267,7 @@ async function fetchFreebuffDataOnce(page: number, perPage: number): Promise<Fre
   const [repoRaw, treeRes, issuesRes, prsRes] = await Promise.all([
     // Falls back to the published constants below so the stat cards still
     // render a real number when the repo endpoint is throttled.
-    getJson<FreebuffRepoRaw>("https://api.github.com/repos/CodebuffAI/freebuff", {
+    getJson<FreebuffRepoRaw>(API, {
       name: FREEbuff.name,
       full_name: `${FREEbuff.owner}/${FREEbuff.repo}`,
       description: FREEbuff.description,
@@ -270,17 +279,17 @@ async function fetchFreebuffDataOnce(page: number, perPage: number): Promise<Fre
       default_branch: FREEbuff.defaultBranch,
     }),
     getJson<FreebuffTreeResponse>(
-      "https://api.github.com/repos/CodebuffAI/freebuff/git/trees/main?recursive=1",
+      `${API}/git/trees/main?recursive=1`,
       EMPTY_TREE,
     ),
     // Search is the most aggressively rate-limited surface (10/min, per IP) and
     // is the one most likely to be exhausted by a visitor clicking around.
     getJson<FreebuffGithubResponse>(
-      `https://api.github.com/search/issues?q=repo:CodebuffAI/freebuff+is:issue+is:open&per_page=${perPage}&page=${page}`,
+      `https://api.github.com/search/issues?q=repo:${REPO_SLUG}+is:issue+is:open&per_page=${perPage}&page=${page}`,
       EMPTY_SEARCH,
     ),
     getJson<FreebuffGithubResponse>(
-      `https://api.github.com/search/issues?q=repo:CodebuffAI/freebuff+is:pr+is:open&per_page=${perPage}&page=${page}`,
+      `https://api.github.com/search/issues?q=repo:${REPO_SLUG}+is:pr+is:open&per_page=${perPage}&page=${page}`,
       EMPTY_SEARCH,
     ),
   ]);
@@ -312,7 +321,7 @@ async function fetchFreebuffDataOnce(page: number, perPage: number): Promise<Fre
       path: f.path,
       size: f.size,
       url: f.url,
-      htmlUrl: `https://github.com/CodebuffAI/freebuff/blob/main/${f.path}`,
+      htmlUrl: `${WEB}/blob/main/${f.path}`,
       type: "file" as const,
       sha: f.sha,
     }));
