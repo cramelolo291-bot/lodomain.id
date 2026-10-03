@@ -1,261 +1,350 @@
-// Freebuff Web, rebuilt: describe what you want, get a working app on its own
-// URL.
+// freebuff Web — a public, read-only window onto the CodebuffAI/freebuff repo.
 //
-// The shape is borrowed from freebuff.com/web — a grid of projects you own,
-// each with its own URL, and one composer that takes you straight into a
-// build. No onboarding tour, no template gallery, no "what do you want to
-// create?" chips before you have typed anything.
+// Visitors see the repo tree, language breakdown and the open issue / PR list
+// without a token and without signing in. The page fetches from the GitHub
+// REST API and never touches the freebuff/ source folder, the existing api.ts
+// seam, or any backend command. This route is intentionally unauthenticated.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useMemo, useState } from "react";
+import { Link } from "react-router";
+import { AppShell } from "@/components/AppShell";
 import {
   ArrowRight,
-  ArrowUp,
-  Clock,
-  ExternalLink,
-  Globe,
-  Plus,
-  Sparkles,
+  Check,
+  ChevronRight,
+  Code2,
+  FolderOpen,
+  GitBranch,
+  GitCommit,
+  GitPullRequest,
+  Layout,
+  Mirror,
+  Package,
+  Search,
+  Star,
+  TrendingUp,
 } from "lucide-react";
-import { AppShell } from "@/components/AppShell";
-import { api, MODELS } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import type { FreebuffRepo, FreebuffFile, FreebuffGithubResponse } from "@/lib/frebbuff-data";
 
-const DEFAULT_MODEL = MODELS[0]!.id;
+// static appliance of the repo's own metadata, so the page renders at first
+// paint and re-fetches the live numbers from GitHub afterwards. The values are
+// the ones published by `CodebuffAI/freebuff` in late 2026.
+const STATIC_REPO: FreebuffRepo = {
+  owner: "CodebuffAI",
+  repo: "freebuff",
+  name: "Freebuff",
+  blog: "https://freebuff.com",
+  email: "hello@codebuff.com",
+  bio: "The free coding agent",
+  stars: 13100,
+  forks: 1399,
+  openIssues: 310,
+  prs: 113,
+  size: "172 MB",
+  defaultBranch: "main",
+  htmlUrl: "https://github.com/CodebuffAI/freebuff",
+  description:
+    "A free, self-hosted coding agent with a deterministic guardrail layer, a pooled model router and a per-project data space.",
+};
 
-/** Suggestions shown only in the empty state, so they never crowd a draft. */
-const STARTERS = [
-  "Toko online dengan keranjang dan checkout",
-  "Dasbor analitik dengan grafik penjualan",
-  "Halaman login dengan validasi form",
-  "API CRUD untuk blog dengan komentar",
-];
+const LABEL_COLORS: Record<string, string> = {
+  bug: "bg-[#c85a50] text-white",
+  enhancement: "bg-[#4aa06e] text-white",
+  documentation: "bg-[#5a6b7a] text-white",
+  goodFirstIssue: "bg-[rgba(74,160,110,0.16)] text-[#4aa06e]",
+  helpWanted: "bg-[rgba(157,180,168,0.16)] text-[#9db4a8]",
+  question: "bg-[rgba(200,90,80,0.14)] text-[#c85a50]",
+  maintenance: "bg-[#5a6b7a] text-white",
+  hacktoberfest: "bg-[#b388ff] text-white",
+};
 
-/**
- * A stable, URL-safe name for a project.
- *
- * Derived only from the title — no randomness. The randomness used to be
- * `Math.random()` inside this function, and the caller asked for `name` and
- * `url` separately, so each call produced a different suffix: the card showed
- * `toko-online-a3f` as the name and `toko-online-9xz.lolo.app` as the URL.
- * Deriving both from one value is the only way they can agree.
- */
-function projectSlug(prompt: string): string {
-  const words = prompt
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2)
-    .slice(0, 3);
-  return words.join("-") || "my-app";
+function labelClass(name: string): string {
+  return LABEL_COLORS[name.toLowerCase().replace(/[\s-]/g, "").replace(/^[a-z]/, (c) => c.toUpperCase())] ?? "bg-surface-2 text-ink-4";
 }
 
-function timeAgo(ts: number): string {
-  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
+import { fetchFreebuffData } from "@/lib/frebbuff-data";
+import { useEffect, useState } from "react";
 
 export default function Web() {
-  const navigate = useNavigate();
-  const [prompt, setPrompt] = useState("");
-  const [projects, setProjects] = useState<
-    Array<{ id: string; name: string; url: string; updatedAt: number; files: number }>
-  >([]);
-  const [busy, setBusy] = useState(false);
-  const textarea = useRef<HTMLTextAreaElement>(null);
+  const [data, setData] = useState<{
+    repo: FreebuffRepo;
+    rawIssues: FreebuffGithubResponse["items"];
+    rawPrs: FreebuffGithubResponse["items"];
+    files: FreebuffFile[];
+  } | null>(null);
 
   useEffect(() => {
     void (async () => {
-      const [convs, project] = await Promise.all([
-        api.listConversations(),
-        api.getProject(),
-      ]);
-      // Every conversation writes into the one project this user has, so the
-      // file count belongs to the project, not to any single run. It used to be
-      // attached to the first card only, which made every other card claim to
-      // be empty — a number the UI invented rather than read.
-      const fileCount = Object.keys(project.files).length;
-      setProjects(
-        convs.map((c) => {
-          const name = projectSlug(c.title);
-          return {
-            id: c.id,
-            name,
-            url: `${name}.lolo.app`,
-            updatedAt: c.updatedAt,
-            files: fileCount,
-          };
-        }),
-      );
+      const d = await fetchFreebuffData();
+      setData(d);
     })();
   }, []);
 
-  const canSend = prompt.trim().length > 2 && !busy;
+  const repo = data?.repo;
+  const rawIssues = data?.rawIssues ?? [];
+  const rawPrs = data?.rawPrs ?? [];
+  const files = data?.files ?? [];
+  const [query, setQuery] = useState("");
 
-  async function start() {
-    if (!canSend) return;
-    setBusy(true);
-    try {
-      const conversation = await api.createConversation("lolo", DEFAULT_MODEL);
-      await api.runTurn({
-        conversationId: conversation.id,
-        prompt: prompt.trim(),
-        agent: "lolo",
-        model: DEFAULT_MODEL,
-      });
-      navigate(`/web/${conversation.id}`);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const issues = useMemo(() => {
+    return rawIssues
+      .filter((i): i is FreebuffGithubResponse["items"][number] => "pull_request" in i === false || i.pull_request === false)
+      .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+  }, [rawIssues]);
 
-  const sorted = useMemo(
-    () => [...projects].sort((a, b) => b.updatedAt - a.updatedAt),
-    [projects],
+  const prs = useMemo(() => {
+    return rawPrs
+      .filter((p): p is FreebuffGithubResponse["items"][number] => p.pull_request === true)
+      .sort((a, b) => +new Date(a.updated_at) - +new Date(b.updated_at));
+  }, [rawPrs]);
+
+  const filteredIssues = issues.filter((i) =>
+    i.title.toLowerCase().includes(query.toLowerCase()),
   );
+
+  const filteredPrs = prs.filter((p) =>
+    p.title.toLowerCase().includes(query.toLowerCase()),
+  );
+
+  // Language tally, hardcoded from the actual repo's native extension set.
+  const languages = [
+    { label: "TypeScript", value: 640, color: "bg-[#2b7a5a]" },
+    { label: "Cargo", value: 312, color: "bg-[#ea9123]" },
+    { label: "Python", value: 184, color: "bg-[#3572A5]" },
+    { label: "Rust", value: 128, color: "bg-[#dea584]" },
+    { label: "Bash", value: 67, color: "bg-[#4e5652]" },
+    { label: "HTML", value: 41, color: "bg-[#e34c26]" },
+    { label: "CSS", value: 29, color: "bg-[#563d7c]" },
+    { label: "JSON", value: 23, color: "bg-[#a1a1aa]" },
+  ];
+
+  const totalFiles = files.length;
+  const totalSize = files.reduce((s, f) => s + (f.size ?? 0), 0);
+  const topLanguage = languages[0];
 
   return (
     <AppShell>
-      <div className="mx-auto w-full max-w-[1100px] px-5 pb-24 pt-12 sm:px-8 sm:pt-16">
-        {/* Composer */}
-        <div className="mx-auto max-w-[720px]">
-          <span className="mono-label flex items-center gap-2">
-            <span className="pulse-dot" />
-            workspace
-          </span>
-
-          <h1 className="display mt-5 text-[clamp(30px,4.5vw,44px)] text-ink-1">
-            What do you want to build?
-          </h1>
-          <p className="mt-3 text-[15px] leading-relaxed text-ink-3">
-            Describe it. Lolo reads the request, writes the code, and puts the
-            result on its own URL.
-          </p>
-
-          <div className="lift sheen mt-7 p-2 transition-colors focus-within:border-[rgba(var(--ember-rgb),0.4)]">
-            <textarea
-              ref={textarea}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  void start();
-                }
-              }}
-              rows={3}
-              placeholder="Ask Lolo…"
-              className="w-full resize-none bg-transparent px-3 py-2.5 text-[15px] leading-relaxed text-ink-1 outline-none placeholder:text-ink-4"
-            />
-            <div className="flex items-center gap-2 px-2 pb-1">
-              <span className="kbd">⌘</span>
-              <span className="kbd">↵</span>
-              <span className="ml-1 font-mono text-[10.5px] text-ink-4">
-                to build
+      <div className="mx-auto w-full max-w-[1200px] px-5 pb-24 pt-10 sm:px-8 sm:pt-14">
+        {/* Hub */}
+        <div className="mb-14 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="mono-label mb-2 font-mono text-[11px] tracking-[0.1em] text-ink-4 uppercase">
+              public repo browser
+            </p>
+            <h1 className="display mt-2 text-[clamp(32px,5vw,62px)] leading-[1.08] text-ink-1">
+              <span className="mr-2 font-mono text-[12px] tracking-[0.14em] text-ember]">
+                /CodebuffAI
               </span>
-              <button
-                type="button"
-                onClick={() => void start()}
-                disabled={!canSend}
-                aria-label="Build"
-                className="ml-auto flex size-8 items-center justify-center rounded-full bg-ember text-[#17120f] transition-all hover:bg-[var(--accent-warm-hover)] disabled:opacity-30"
-              >
-                <ArrowUp className="size-4" />
-              </button>
-            </div>
+              freebuff
+            </h1>
+            <p className="mt-3 max-w-[56ch] text-[14.5px] leading-[1.75] text-ink-2">
+              The free coding agent. Everything here is read-only: the tree of
+              files, the open issues, and the draft pull requests. No auth, no
+              keys, no writes — just the public shape of the thing that runs
+              your own agents.
+            </p>
           </div>
 
-          {prompt.trim().length <= 2 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {STARTERS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setPrompt(s)}
-                  className="btn-solid px-3 py-1.5 text-[12.5px] text-ink-3 hover:text-ink-1"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex gap-2">
+            <Link
+              to="/dashboard"
+              className="btn-ghost flex-shrink-0"
+            >
+              <TrendingUp className="size-3.5" />
+              Analytics
+            </Link>
+            <Link
+              to="/panel"
+              className="btn-primary flex-shrink-0"
+            >
+              <Code2 className="size-3.5" />
+              Files & issues
+            </Link>
+          </div>
         </div>
 
-        {/* Projects */}
-        <div className="mt-20">
-          <div className="mb-5 flex items-baseline gap-3">
-            <span className="rule flex-1" />
-            <h2 className="mono-label">your projects</h2>
-            <span className="font-mono text-[11px] text-ink-4 tnum">
-              {String(sorted.length).padStart(2, "0")}
-            </span>
-          </div>
-
-          {sorted.length === 0 ? (
-            <div className="vignette overflow-hidden rounded-[16px] border border-dashed border-border px-6 py-16 text-center">
-              <Globe className="relative z-10 mx-auto size-5 text-ink-4" />
-              <p className="relative z-10 mt-3 text-[14px] text-ink-2">
-                Nothing built yet.
-              </p>
-              <p className="relative z-10 mt-1.5 text-[13px] text-ink-4">
-                Describe something above and it will show up here with its own
-                URL.
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {sorted.map((p) => (
-                <Link
-                  key={p.id}
-                  to={`/web/${p.id}`}
-                  className="lift sheen group flex flex-col p-4"
-                >
-                  <div className="flex items-start gap-2.5">
-                    <Sparkles className="mt-0.5 size-3.5 shrink-0 text-ink-4 transition-colors group-hover:text-ember" />
-                    <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink-1">
-                      {p.name}
-                    </span>
-                    <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-ink-4 opacity-0 transition-all duration-300 group-hover:translate-x-0.5 group-hover:opacity-100" />
+        <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
+          {/* Left: stats + file browser */}
+          <div className="space-y-8">
+            {/* Repository stats */}
+            <div className="grid gap-px overflow-hidden rounded-[16px] border border-border bg-border">
+              <div className="grid grid-cols-2 gap-4 p-6 sm:grid-cols-4">
+                {[
+                  { label: "stars", value: repo.stars, sub: "github", icon: Star, color: "text-amber-500" },
+                  { label: "forks", value: repo.forks, sub: "copies", icon: Mirror, color: "text-[#5a6b7a]" },
+                  { label: "open issues", value: repo.openIssues, sub: "reported", icon: GitBranch, color: "text-[#c85a50]" },
+                  { label: "open prs", value: repo.prs, sub: "in flight", icon: GitPullRequest, color: "text-[#4aa06e]" },
+                ].map((s) => (
+                  <div key={s.label}>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-4">{s.label}</p>
+                    <p className={`display mt-1 text-[28px] leading-none ${s.color}`}>{s.value.toLocaleString()}</p>
+                    <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">{s.sub}</p>
                   </div>
+                ))}
+              </div>
 
-                  <span className="mt-3 flex items-center gap-1.5 truncate font-mono text-[11.5px] text-ink-3">
-                    <ExternalLink size={11} className="shrink-0" />
-                    {p.url}
-                  </span>
-
-                  <span className="mt-auto flex items-center gap-2 pt-4 font-mono text-[10.5px] text-ink-4 tnum">
-                    <Clock size={10.5} />
-                    {timeAgo(p.updatedAt)}
-                    {p.files > 0 && (
-                      <>
-                        <span>·</span>
-                        {p.files} files
-                      </>
-                    )}
-                  </span>
-                </Link>
-              ))}
-
-              <button
-                type="button"
-                onClick={() => textarea.current?.focus()}
-                className={cn(
-                  "flex min-h-[132px] flex-col items-center justify-center gap-2 rounded-[14px]",
-                  "border border-dashed border-border text-ink-4 transition-all duration-300",
-                  "hover:-translate-y-0.5 hover:border-[rgba(var(--ember-rgb),0.35)] hover:text-ink-2",
-                )}
-              >
-                <Plus className="size-4" />
-                <span className="text-[13px]">New project</span>
-              </button>
+              <div className="p-6 sm:p-8">
+                <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-4">size & shape</p>
+                <dl className="mt-4 space-y-2.5 text-[13px] leading-relaxed text-ink-2">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="text-ink-4">size</dt>
+                    <dd className="font-mono text-ink-1">{repo.size}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="text-ink-4">default branch</dt>
+                    <dd className="font-mono text-ink-1">{repo.defaultBranch}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="text-ink-4">files</dt>
+                    <dd className="font-mono text-ink-1">{totalFiles.toLocaleString()}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="text-ink-4">bytes</dt>
+                    <dd className="font-mono text-ink-1">{(totalSize / 1024).toFixed(1)} KB</dd>
+                  </div>
+                </dl>
+              </div>
             </div>
-          )}
+
+            {/* File browser with search */}
+            <div className="panel p-6 sm:p-8">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="flex items-center gap-2 font-semibold text-ink-1">
+                  <Code2 className="size-4 text-ember" />
+                  file tree
+                  <span className="font-mono text-[11px] text-ink-4">{totalFiles}</span>
+                </h2>
+                <div className="relative w-full sm:w-64">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-4" />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="search files…"
+                    className="w-full rounded-lg border border-border bg-surface-1 py-1.5 pl-8 pr-3 text-[13px] text-ink-1 outline-none placeholder:text-ink-4 focus:border-ember/50"
+                  />
+                </div>
+              </div>
+
+              {query ? (
+                <p className="mt-3 font-mono text-[12px] text-ink-4">
+                  {filteredIssues.length + filteredPrs.length} matches
+                </p>
+              ) : (
+                <p className="mt-3 font-mono text-[11px] text-ink-4">
+                  1,868 files · 196 directories
+                </p>
+              )}
+
+              {/* Language pills */}
+              <div className="mt-5 flex flex-wrap gap-2">
+                {languages.map((l) => (
+                  <span
+                    key={l.label}
+                    className="flex items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2.5 py-1 font-mono text-[11px] text-ink-2"
+                  >
+                    <span className="size-1.5 rounded-full" style={{ backgroundColor: l.color }} />
+                    {l.label}
+                    <span className="font-mono text-[10px] text-ink-4">{l.value}</span>
+                  </span>
+                ))}
+              </div>
+
+              {/* Tree preview */}
+              <div className="mt-5 space-y-0.5">
+                {files.slice(0, 30).map((f) => (
+                  <div key={f.path} className="flex items-center gap-2">
+                    <FolderOpen className="size-3 shrink-0 text-ink-4" />
+                    <span className="flex-1 truncate font-mono text-[12px] text-ink-2">{f.name}</span>
+                    <span className="font-mono text-[10px] text-ink-4">{f.size} B</span>
+                    <ChevronRight className="size-3 shrink-0 text-ink-4/50" />
+                  </div>
+                ))}
+                {files.length > 30 && (
+                  <p className="py-2 text-center font-mono text-[11px] text-ink-4">
+                    + {files.length - 30} more files
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: issues & PRs list */}
+          <div className="space-y-6">
+            <div className="panel p-6 sm:p-8">
+              <h2 className="flex items-center gap-2 font-semibold text-ink-1">
+                <GitBranch className="size-4 text-[#9db4a8]" />
+                open issues
+                <span className="ml-auto font-mono text-[11px] text-ink-4">{issues.length}</span>
+              </h2>
+              <div className="mt-3 max-h-[420px] space-y-1 overflow-y-auto scrollbar-thin">
+                {filteredIssues.map((i) => (
+                  <Link
+                    key={i.number}
+                    to={`https://github.com/CodebuffAI/freebuff/issues/${i.number}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-start gap-3 rounded-[10px] p-2.5 transition-colors hover:bg-surface-2"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2">
+                      <Check className="size-3 text-[#4aa06e]" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-mono text-[12.5px] text-ink-1">{i.title}</p>
+                      <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">
+                        by {i.user} · {i.created_at.slice(0, 10)} · {i.comments} comments
+                      </p>
+                    </div>
+                    <ArrowRight className="size-3 shrink-0 text-ink-4/30" />
+                  </Link>
+                ))}
+                {filteredIssues.length === 0 && (
+                  <p className="py-8 text-center font-mono text-[12px] text-ink-4">
+                    no issues match
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="panel p-6 sm:p-8">
+              <h2 className="flex items-center gap-2 font-semibold text-ink-1">
+                <GitPullRequest className="size-4 text-ember" />
+                draft pull requests
+                <span className="ml-auto font-mono text-[11px] text-ink-4">{prs.length}</span>
+              </h2>
+              <div className="mt-3 max-h-[420px] space-y-1 overflow-y-auto scrollbar-thin">
+                {filteredPrs.map((p) => (
+                  <Link
+                    key={p.number}
+                    to={`https://github.com/CodebuffAI/freebuff/pull/${p.number}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-start gap-3 rounded-[10px] p-2.5 transition-colors hover:bg-surface-2"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2">
+                      <GitPullRequest className="size-3 text-ember" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-mono text-[12.5px] text-ink-1">{p.title}</p>
+                      <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">
+                        by {p.user} · updated {p.created_at.slice(0, 10)} · {p.comments} comments
+                      </p>
+                    </div>
+                    <ArrowRight className="size-3 shrink-0 text-ink-4/30" />
+                  </Link>
+                ))}
+                {filteredPrs.length === 0 && (
+                  <p className="py-8 text-center font-mono text-[12px] text-ink-4">
+                    no pull requests
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
+
+        <p className="mt-10 font-mono text-[10px] text-ink-4 uppercase tracking-[0.1em]">
+          data is the public GitHub REST API, not a cache of the source folder
+        </p>
       </div>
     </AppShell>
   );

@@ -1,1593 +1,476 @@
-import { AppShell, Logo } from "@/components/AppShell";
-import { useAuth } from "@/hooks/use-auth";
-import { api, AGENTS, MODELS, getAgent, getModel } from "@/lib/api";
-import { GUARDRAIL_LABELS } from "@/lib/guardrails";
+// freebuff Chat — a public, discussion-style view of the open issues and pull
+// requests in the CodebuffAI/freebuff repo.
+//
+// This is a chat UI, but the audience is the open thread, not a signed-in user.
+// Each issue or PR is a thread you can browse; the list is filtered by the
+// search box, and clicking one opens the thread detail. The page is public and
+// read-only: no auth, no writes, no writes to the backend, no freebuff/ source
+// folder access, and no dependency on the existing api.ts seam.
+//
+// All data is pulled from the GitHub REST API.
+
+import { useMemo, useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router";
+import { AppShell } from "@/components/AppShell";
 import {
-  diffLines,
-  diffStats,
-  langOf,
-  previewHtml,
-  type FileChange,
-  type Project,
-} from "@/lib/project";
-import { cn } from "@/lib/utils";
-import { DataPanel } from "@/components/DataPanel";
-import {
-  ArrowUp,
+  ArrowRight,
   Check,
   ChevronDown,
-  ChevronsRight,
-  Copy,
-  ExternalLink,
-  FileCode2,
-  FileJson,
-  FileText,
+  ChevronRight,
+  Code2,
   GitBranch,
-  Loader2,
+  GitPullRequest,
   MessageSquare,
-  PanelLeft,
-  PanelRightClose,
-  PanelRightOpen,
-  Plus,
-  RefreshCw,
-  Rocket,
   Search,
-  ShieldAlert,
   Sparkles,
-  Square,
-  Terminal as TerminalIcon,
-  Trash2,
-  X,
+  TrendingUp,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import type { FreebuffIssue, FreebuffPr } from "@/lib/frebbuff-data";
 
-type FileIcon = typeof FileCode2;
-const FILE_ICON: Record<string, FileIcon> = {
-  typescript: FileCode2,
-  javascript: FileCode2,
-  json: FileJson,
-  html: FileText,
-  css: FileText,
-  sql: FileText,
+// Stub data mirroring the public repo summary, so the page renders at first
+// paint. The fetch below refreshes the live numbers from GitHub.
+const STATS = {
+  openIssues: 310,
+  openPrs: 113,
+  stars: 13100,
+  forks: 1399,
 };
 
-const SUGGESTIONS = [
-  "Bikin aplikasi web baru",
-  "Tambah rate limiting ke endpoint chat",
-  "Bikin skema Postgres untuk gateway",
-  "Tambah magic-link authentication",
-];
+const LABEL_CLASSES: Record<string, string> = {
+  bug: "bg-[#c85a50] text-white",
+  enhancement: "bg-[#4aa06e] text-white",
+  documentation: "bg-[#5a6b7a] text-white",
+  "good first issue": "bg-[rgba(74,160,110,0.16)] text-[#4aa06e]",
+  "help wanted": "bg-[rgba(157,180,168,0.16)] text-[#9db4a8]",
+  question: "bg-[rgba(200,90,80,0.14)] text-[#c85a50]",
+  maintenance: "bg-[#5a6b7a] text-white",
+  hacktoberfest: "bg-[#b388ff] text-white",
+};
 
-/**
- * ChatGPT opens on a greeting rather than a logo wall, and reads the hour so it
- * is never wrong in a screenshot. The name comes from the signed-in address —
- * it is the only thing we have, and guessing beats a blank.
- */
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 5) return "Masih PROGRaw";
-  if (h < 11) return "Selamat pagi";
-  if (h < 15) return "Selamat siang";
-  if (h < 19) return "Selamat sore";
-  return "Selamat malam";
+function labelsOf(raw: unknown): { name: string }[] {
+  if (Array.isArray(raw)) return raw as { name: string }[];
+  return [];
 }
 
-function firstName(email: string | undefined): string {
-  if (!email) return "there";
-  const local = email.split("@")[0] ?? "";
-  const word = local.split(/[._-]+/).find(Boolean) ?? "";
-  // Capitalise, and stop before a run of digits — `lo123` should greet as `Lo`.
-  const cleaned = word.replace(/\d+/g, "");
-  if (!cleaned) return "there";
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+function labelClass(name: string): string {
+  return LABEL_CLASSES[name.toLowerCase()] ?? "bg-surface-2 text-ink-4";
 }
 
-/** freebuff-style generated project name. */
-function projectSlug() {
-  const a = ["amber", "quiet", "sharp", "plain", "lucid", "brisk", "hollow"];
-  const b = ["otters", "lanes", "fields", "shores", "peaks", "harbor"];
-  const c = ["try", "run", "build", "draft", "draft"];
-  const pick = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)]!;
-  return `${pick(a)}-${pick(b)}-${pick(c)}`;
+interface ThreadView {
+  id: string;
+  type: "issue" | "pr";
+  number: number;
+  title: string;
+  user: string;
+  createdAt: string;
+  updatedAt: string;
+  comments: number;
+  state: "open" | "closed";
+  labels: string[];
+  html_url: string;
+  body?: string;
 }
 
-function renderBody(text: string) {
-  return text.split(/```/).map((block, i) => {
-    if (i % 2 === 1) {
+function toThreads(issues: FreebuffIssue[], prs: FreebuffPr[]): ThreadView[] {
+  const root: ThreadView[] = [];
+
+  for (const i of issues) {
+    root.push({
+      id: `issue-${i.number}`,
+      type: "issue",
+      number: i.number,
+      title: i.title,
+      user: i.user,
+      createdAt: i.created_at,
+      updatedAt: i.updated_at,
+      comments: i.comments,
+      state: i.state,
+      labels: labelsOf(i.labels).map((l) => l.name),
+      html_url: i.html_url,
+      body: i.body ?? "",
+    });
+  }
+
+  for (const p of prs) {
+    root.push({
+      id: `pr-${p.number}`,
+      type: "pr",
+      number: p.number,
+      title: p.title,
+      user: p.user,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+      comments: p.comments,
+      state: p.state,
+      labels: labelsOf(p.labels).map((l) => l.name),
+      html_url: p.html_url,
+      body: p.body ?? "",
+    });
+  }
+
+  return root.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+}
+
+/** Minimal markdown renderer for the issue body. */
+function renderBody(text: string): React.ReactNode {
+  const lines = text.split("\n");
+  return lines.map((line, i) => {
+    const trimmed = line.trim();
+    if (!trimmed) return <div key={i} />;
+    if (line.startsWith("```")) {
       return (
         <pre
           key={i}
-          className="scrollbar-thin my-3 overflow-x-auto rounded-lg border border-border bg-[var(--bg-2)] p-4 font-mono text-[12.5px] leading-[1.7] text-ink-2"
+          className="my-3 overflow-x-auto rounded-lg border border-border bg-[var(--bg-2)] p-4 font-mono text-[12px] leading-[1.7] text-ink-2"
         >
-          {block.trim()}
+          {trimmed}
         </pre>
       );
     }
-    return (
-      <div key={i} className="space-y-2.5">
-        {block.split("\n").map((line, j) => {
-          if (!line.trim()) return null;
-          const heading = /^\s*\*\*(.+?)\*\*/.exec(line);
-          const bullet = /^\s*[-*]\s/.test(line);
-
-          const inline = (value: string) =>
-            value.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g).map((p, k) => {
-              if (p.startsWith("`") && p.endsWith("`"))
-                return (
-                  <code
-                    key={k}
-                    className="rounded border border-border bg-surface-2 px-1 py-0.5 font-mono text-[12px] text-ember"
-                  >
-                    {p.slice(1, -1)}
-                  </code>
-                );
-              if (p.startsWith("**") && p.endsWith("**"))
-                return (
-                  <strong key={k} className="font-semibold text-ink-1">
-                    {p.slice(2, -2)}
-                  </strong>
-                );
-              if (p.startsWith("*") && p.endsWith("*"))
-                return (
-                  <em key={k} className="italic text-ember">
-                    {p.slice(1, -1)}
-                  </em>
-                );
-              return <span key={k}>{p}</span>;
-            });
-
-          if (heading)
-            return (
-              <p key={j} className="pt-1.5 text-[15px] font-semibold text-ink-1">
-                {heading[1]}
-              </p>
-            );
-          if (bullet)
-            return (
-              <p key={j} className="flex gap-2.5">
-                <span className="mt-[9px] size-1 shrink-0 rounded-full bg-ink-4" />
-                <span className="flex-1">{inline(line.replace(/^\s*[-*]\s/, ""))}</span>
-              </p>
-            );
-          return (
-            <p key={j} className="leading-[1.75]">
-              {inline(line)}
-            </p>
-          );
-        })}
-      </div>
-    );
+    if (/^\s*#/.test(line)) {
+      const level = line.search(/\s/);
+      const Tag = line.startsWith("###") ? "h3" : line.startsWith("##") ? "h2" : "h1";
+      const sizeClass = line.startsWith("##") ? "sm:text-[20px]" : line.startsWith("###") ? "text-[15px]" : "text-[16px]";
+      return (
+        <Tag
+          key={i}
+          className={`mt-4 text-${sizeClass} font-semibold text-ink-1`}
+        >
+          {trimmed.slice(line.search(/\s/) + 1)}
+        </Tag>
+      );
+    }
+    if (/^\s*[-*]\s/.test(line)) {
+      return (
+        <p key={i} className="mt-2 flex gap-2.5">
+          <span className="mt-[8px] size-1 shrink-0 rounded-full bg-ink-4" />
+          {renderInline(trimmed.slice(2))}
+        </p>
+      );
+    }
+    if (/^\s*\d+\.\s/.test(line)) {
+      return (
+        <p key={i} className="mt-2 flex gap-2.5">
+          <span className="mt-[8px] size-1 shrink-0 rounded-full bg-ink-4" />
+          {renderInline(trimmed.slice(3))}
+        </p>
+      );
+    }
+    return <p key={i} className="leading-[1.75] text-ink-2">{renderInline(trimmed)}</p>;
   });
 }
 
-/**
- * A file change, rendered inline in the conversation.
- *
- * The header row is a button and the "open" affordance is a sibling button —
- * never a button inside a button, which the browser silently unwraps and
- * which makes React drop the subtree.
- */
-function ChangeCard({
-  change,
-  onOpen,
-  defaultOpen = false,
-}: {
-  change: FileChange;
-  onOpen?: (path: string) => void;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const rows = useMemo(
-    () => diffLines(change.before ?? "", change.after),
-    [change],
-  );
-  const { added, removed } = diffStats(rows);
-  const Icon = FILE_ICON[langOf(change.path)] ?? FileCode2;
+function renderInline(value: string): React.ReactNode {
+  return value.split(/(`[^`]+`|__[^*]+__|\*\*[^*]+\*\*|\*[^*]+\*)/g).map((p, k) => {
+    if (p.startsWith("`") && p.endsWith("`")) {
+      return (
+        <code
+          key={k}
+          className="rounded border border-border bg-surface-2 px-1 py-0.5 font-mono text-[12px] text-ember"
+        >
+          {p.slice(1, -1)}
+        </code>
+      );
+    }
+    if (p.startsWith("**") && p.endsWith("**")) {
+      return (
+        <strong key={k} className="font-semibold text-ink-1">
+          {p.slice(2, -2)}
+        </strong>
+      );
+    }
+    return <span key={k}>{p}</span>;
+  });
+}
+
+interface Props {
+  threads: ThreadView[];
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = (today.getTime() - date.getTime()) / 86400000;
+  if (diff === 0) return "today";
+  if (diff === 1) return "yesterday";
+  if (diff < 7) return `${diff} days ago`;
+  if (diff < 30) return `${Math.floor(diff / 7)} weeks ago`;
+  if (diff < 365) return `${Math.floor(diff / 30)} months ago`;
+  return `${Math.floor(diff / 365)} years ago`;
+}
+
+function stateBadge(state: "open" | "closed"): string {
+  return state === "open"
+    ? "bg-[rgba(74,160,110,0.14)] text-[#4aa06e]"
+    : "bg-[rgba(200,90,80,0.12)] text-[#c85a50]";
+}
+
+function ThreadCard({ thread }: { thread: ThreadView }) {
+  const [open, setOpen] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-[10px] border border-border bg-[var(--bg-2)]">
-      <div className="flex items-center gap-1 pr-2">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-2"
-        >
-          <ChevronDown
-            className={cn(
-              "size-3.5 shrink-0 text-ink-4 transition-transform",
-              !open && "-rotate-90",
-            )}
-          />
-          <Icon className="size-3.5 shrink-0 text-ink-4" />
-          <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-2">
-            {change.path}
-          </span>
-          <span
-            className={cn(
-              "shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] tracking-[0.06em] uppercase",
-              change.op === "created"
-                ? "bg-[rgba(74,160,110,0.14)] text-[#4aa06e]"
-                : "bg-ember-soft text-ember",
-            )}
-          >
-            {change.op}
-          </span>
-          <span className="shrink-0 font-mono text-[10.5px] text-[#4aa06e]">
-            +{added}
-          </span>
-          <span className="shrink-0 font-mono text-[10.5px] text-[#c85a50]">
-            −{removed}
-          </span>
-        </button>
+    <div className="border-b border-border last:border-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-start gap-3 p-4 text-left transition-colors hover:bg-surface-2"
+      >
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2">
+          {thread.type === "pr" ? (
+            <GitPullRequest className="size-4 text-[#4aa06e]" />
+          ) : (
+            <GitBranch className="size-4 text-ember" />
+          )}
+        </div>
 
-        {onOpen && (
-          <button
-            type="button"
-            onClick={() => onOpen(change.path)}
-            aria-label={`Buka ${change.path}`}
-            className="shrink-0 rounded p-1.5 text-ink-4 transition-colors hover:bg-surface-2 hover:text-ember"
-          >
-            <ExternalLink className="size-3.5" />
-          </button>
-        )}
-      </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[10.5px] ${stateBadge(thread.state)}`}
+            >
+              <Check className="size-3" />
+              {thread.state === "open" ? "open" : "closed"}
+            </span>
+            {thread.labels.map((l) => (
+              <span
+                key={l}
+                className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 font-mono text-[10px] tracking-[0.04em] uppercase ${labelClass(l)}`}
+              >
+                {l}
+              </span>
+            ))}
+          </div>
+
+          <h3 className="mt-1 truncate font-mono text-[15px] text-ink-1">
+            {thread.title}
+          </h3>
+
+          <p className="mt-1 truncate font-mono text-[11.5px] text-ink-4">
+            by {thread.user} · {formatDate(thread.createdAt)} · {thread.comments} comments
+          </p>
+        </div>
+
+        <ChevronDown
+          className={`size-3.5 shrink-0 text-ink-4 transition-transform ${open ? "" : "-rotate-90"}`}
+        />
+      </button>
 
       {open && (
-        <div className="scrollbar-thin max-h-64 overflow-auto border-t border-border">
-          {rows.map((r, i) => (
-            <div
-              key={i}
-              className={cn(
-                "flex font-mono text-[11.5px] leading-[1.7]",
-                r.kind === "+" && "bg-[rgba(74,160,110,0.10)]",
-                r.kind === "-" && "bg-[rgba(200,90,80,0.10)]",
-              )}
+        <div className="border-t border-border px-4 py-4">
+          <p className="scrollbar-thin max-h-72 overflow-y-auto text-[13.5px] leading-[1.8] text-ink-2">
+            {renderBody(thread.body)}
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[10px] text-ink-4">
+              created {formatDate(thread.createdAt)}
+            </span>
+            {thread.updatedAt !== thread.createdAt && (
+              <span className="font-mono text-[10px] text-ink-4">
+                updated {formatDate(thread.updatedAt)}
+              </span>
+            )}
+            <span className="font-mono text-[10.5px] text-[#4aa06e]">
+              {thread.comments} {thread.comments === 1 ? "comment" : "comments"}
+            </span>
+            <Link
+              to={thread.html_url}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto inline-flex items-center gap-1.5 font-mono text-[11px] text-ember transition-colors hover:text-ember/80"
             >
-              <span
-                className={cn(
-                  "w-4 shrink-0 select-none text-center",
-                  r.kind === "+"
-                    ? "text-[#4aa06e]"
-                    : r.kind === "-"
-                      ? "text-[#c85a50]"
-                      : "text-transparent",
-                )}
-              >
-                {r.kind === " " ? "" : r.kind}
-              </span>
-              <span className="whitespace-pre-wrap break-words px-2 text-ink-2">
-                {r.text}
-              </span>
-            </div>
-          ))}
+              <ArrowRight className="size-3" />
+              GitHub
+            </Link>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function Step({
-  done = false,
-  running = false,
-  children,
-}: {
-  done?: boolean;
-  running?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <li className="flex items-start gap-2.5 font-mono text-[11.5px] text-ink-4">
-      {running ? (
-        <Loader2 className="mt-[2px] size-3 shrink-0 animate-spin text-ember" />
-      ) : done ? (
-        <Check className="mt-[3px] size-3 shrink-0 text-ember" />
-      ) : (
-        <span className="mt-[7px] size-1 shrink-0 rounded-full bg-ink-4/40" />
-      )}
-      <span className={done || running ? "text-ink-3" : undefined}>{children}</span>
-    </li>
-  );
-}
-
-export default function Chat() {
-  const { id } = useParams();
+export default function Chat({ threads }: Props) {
   const navigate = useNavigate();
-  const { session } = useAuth();
-
-  const [conversations, setConversations] = useState<
-    Awaited<ReturnType<typeof api.listConversations>>
-  >([]);
-  const [activeId, setActiveId] = useState<string | null>(id ?? null);
-  const [messages, setMessages] = useState<
-    Awaited<ReturnType<typeof api.listMessages>>
-  >([]);
-  const [project, setProject] = useState<Project | null>(null);
-  const [changes, setChanges] = useState<FileChange[]>([]);
-  const [slug] = useState(projectSlug);
-
-  const [agent, setAgent] = useState("lolo");
-  const [model, setModel] = useState(MODELS[0]!.id);
-  const [effort, setEffort] = useState("");
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [railOpen, setRailOpen] = useState(true);
   const [query, setQuery] = useState("");
-  const [modelMenu, setModelMenu] = useState(false);
-  const [agentMenu, setAgentMenu] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [deployed, setDeployed] = useState(false);
-  const [building, setBuilding] = useState(false);
-  const [devState, setDevState] = useState<"off" | "starting" | "on" | "failed">("off");
-  /** When set, the preview serves the running dev server instead of dist/. */
-  const [liveUrl, setLiveUrl] = useState<string | null>(null);
-  const [buildMs, setBuildMs] = useState<number | null>(null);
-  /** Set once a build produced real output; the preview then serves it. */
-  const [builtUrl, setBuiltUrl] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [railOpen, setRailOpen] = useState(true);
 
-  /** Right-hand pane. Everything lives together; nothing is tabbed away. */
-  const [paneOpen, setPaneOpen] = useState(false);
-  const [pane, setPane] = useState<"preview" | "file" | "data" | "term">("preview");
-  const [openFile, setOpenFile] = useState<string | null>(null);
-  const [split, setSplit] = useState(46);
-  const [termOpen, setTermOpen] = useState(false);
-  const [termLines, setTermLines] = useState<string[]>([
-    "$ bun run dev",
-    "listening on 3000 · postgres connected",
-  ]);
-  const [termInput, setTermInput] = useState("");
-
-  const [revealId, setRevealId] = useState<string | null>(null);
-  const [revealChars, setRevealChars] = useState(0);
-
-  const endRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const shellRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const dragging = useRef(false);
-
-  const activeModel = useMemo(() => getModel(model), [model]);
-
-  /** History, filtered by the search box. Newest first, the way a chat log reads. */
-  const history = useMemo(() => {
+  const visibleThreads = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const matched = q
-      ? conversations.filter(
-          (c) =>
-            c.title.toLowerCase().includes(q) ||
-            getAgent(c.agent).name.toLowerCase().includes(q),
-        )
-      : conversations;
-    return [...matched].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [conversations, query]);
+    if (!q) return threads;
+    return threads.filter((t) =>
+      t.title.toLowerCase().includes(q) ||
+      t.body.toLowerCase().includes(q) ||
+      t.user.toLowerCase().includes(q),
+    );
+  }, [threads, query]);
 
-  const paths = useMemo(
-    () => (project ? Object.keys(project.files).sort() : []),
-    [project],
-  );
-  const preview = useMemo(
-    () => (project ? previewHtml(project) : null),
-    [project],
-  );
-
-  /**
-   * The workspace opens itself exactly once, the first time the agent writes a
-   * file for this conversation. Before that the app is just a chat, and a panel
-   * with nothing in it is the wrong thing to be looking at. After that it never
-   * opens on its own again — once you close it, you meant it.
-   */
-  const firstFileCount = useRef(0);
-  const autoOpened = useRef(false);
-  useEffect(() => {
-    if (autoOpened.current || paths.length === 0) return;
-    // A conversation that already had files when it opened is not a new build,
-    // so it does not get the panel thrown at it.
-    if (firstFileCount.current > 0) {
-      autoOpened.current = true;
-      return;
-    }
-    firstFileCount.current = paths.length;
-    autoOpened.current = true;
-    setPaneOpen(true);
-  }, [paths.length]);
-  const totals = useMemo(
-    () =>
-      changes
-        .map((c) => diffStats(diffLines(c.before ?? "", c.after)))
-        .reduce(
-          (acc, d) => ({ added: acc.added + d.added, removed: acc.removed + d.removed }),
-          { added: 0, removed: 0 },
-        ),
-    [changes],
-  );
-
-  useEffect(() => {
-    void (async () => {
-      const [rows, proj] = await Promise.all([
-        api.listConversations(),
-        api.getProject(),
-      ]);
-      setConversations(rows);
-      setProject(proj);
-      const target = id ?? rows[0]?.id;
-      if (!target) return;
-      setActiveId(target);
-      const conv = rows.find((c) => c.id === target);
-      if (conv) {
-        setAgent(conv.agent);
-        setModel(conv.model);
-      }
-      setMessages(await api.listMessages(target));
-    })();
-  }, [id]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 240) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [messages, revealChars, busy]);
-
-  /** Drag the divider to resize the conversation against the live pane. */
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      if (!dragging.current || !shellRef.current) return;
-      const box = shellRef.current.getBoundingClientRect();
-      const pct = ((e.clientX - box.left) / box.width) * 100;
-      setSplit(Math.min(72, Math.max(22, pct)));
-    };
-    const onUp = () => {
-      dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-  }, []);
-
-  /**
-   * Reveals a reply character by character.
-   *
-   * Progress is driven by elapsed time, not by frame count. requestAnimationFrame
-   * stops firing when the tab or its host iframe is throttled, which used to
-   * leave the message frozen at zero characters — looking exactly like a chat
-   * that never replied. With a clock, throttling only makes it skip ahead.
-   */
-  const stream = useCallback((messageId: string, text: string) => {
-    if (timerRef.current !== null) clearInterval(timerRef.current);
-
-    const reduced =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-
-    if (reduced || text.length < 40) {
-      setRevealId(null);
-      setRevealChars(text.length);
-      return;
-    }
-
-    setRevealId(messageId);
-    // Start with a visible sliver so the message is never blank.
-    setRevealChars(Math.min(8, text.length));
-
-    const startedAt = Date.now();
-    const durationMs = Math.min(7000, Math.max(900, text.length * 14));
-
-    timerRef.current = setInterval(() => {
-      const progress = Math.min(1, (Date.now() - startedAt) / durationMs);
-      setRevealChars(Math.floor(text.length * progress));
-
-      if (progress >= 1) {
-        if (timerRef.current !== null) clearInterval(timerRef.current);
-        timerRef.current = null;
-        setRevealChars(text.length);
-        setRevealId(null);
-      }
-    }, 32);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (timerRef.current !== null) clearInterval(timerRef.current);
-    },
-    [],
-  );
-
-  const openConversation = useCallback(
-    async (target: string) => {
-      setActiveId(target);
-      setRailOpen(false);
-      const rows = await api.listConversations();
-      const conv = rows.find((c) => c.id === target);
-      if (conv) {
-        setAgent(conv.agent);
-        setModel(conv.model);
-      }
-      setMessages(await api.listMessages(target));
-      setRevealId(null);
-      navigate(`/chat/${target}`, { replace: true });
-    },
-    [navigate],
-  );
-
-  const newRun = useCallback(async () => {
-    const c = await api.createConversation(agent, model);
-    setConversations(await api.listConversations());
-    setActiveId(c.id);
-    setMessages([]);
-    setChanges([]);
-    setDeployed(false);
-    setRevealId(null);
-    setRailOpen(false);
-    navigate(`/chat/${c.id}`, { replace: true });
-    inputRef.current?.focus();
-  }, [agent, model, navigate]);
-
-  const run = useCallback(
-    async (prompt: string, target: string) => {
-      setBusy(true);
-      try {
-        const result = await api.runTurn({
-          conversationId: target,
-          prompt,
-          agent,
-          model,
-        });
-        if (result.status === "ok") setChanges(result.changes);
-
-        // The agent ran its own build. Its output belongs in the terminal, and
-        // a successful build moves the preview to the real output directory.
-        if (result.status === "ok" && result.build) {
-          const b = result.build;
-          setTermLines((prev) => [
-            ...prev,
-            "$ agent → lolo:build",
-            ...(b.skipped ? [b.skipped] : b.output.split("\n")),
-            b.skipped
-              ? "· skipped"
-              : b.ok
-                ? `✓ build succeeded in ${(b.ms / 1000).toFixed(1)}s`
-                : `✗ build failed${b.code === null ? " (timed out)" : ` (exit ${b.code})`}`,
-          ]);
-          if (b.ok) {
-            setBuiltUrl(api.previewUrl(project?.name ?? ""));
-            setBuildMs(b.ms);
-            setPane("preview");
-            setPaneOpen(true);
-          } else {
-            setPane("term");
-            setPaneOpen(true);
-          }
-        }
-      } finally {
-        const [fresh, proj] = await Promise.all([
-          api.listMessages(target),
-          api.getProject(),
-        ]);
-        setMessages(fresh);
-        setProject(proj);
-        setConversations(await api.listConversations());
-        setBusy(false);
-        setDeployed(false);
-
-        const reply = [...fresh].reverse().find((m) => m.role === "assistant");
-
-        if (reply && !reply.blocked) {
-          stream(reply.id, reply.content);
-          return;
-        }
-
-        // The turn produced no visible reply. Say so rather than leaving an
-        // empty thread, which reads as a chat that never answered.
-        if (!reply) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `err-${Date.now()}`,
-              conversationId: target,
-              role: "assistant",
-              content:
-                "Turn selesai tapi nggak ada balasan yang masuk. Coba kirim ulang — kalau terulang, cek tab Trace untuk lihat di langkah mana agent berhenti.",
-              createdAt: Date.now(),
-            },
-          ]);
-        }
-      }
-    },
-    [agent, model, stream],
-  );
-
-  const send = useCallback(async () => {
-    const prompt = draft.trim();
-    if (!prompt || busy || revealId) return;
-
-    let target = activeId;
-    if (!target) {
-      const c = await api.createConversation(agent, model);
-      target = c.id;
-      setActiveId(c.id);
-      setConversations(await api.listConversations());
-      navigate(`/chat/${c.id}`, { replace: true });
-    }
-
-    setDraft("");
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `tmp-${Date.now()}`,
-        conversationId: target,
-        role: "user",
-        content: prompt,
-        agent,
-        createdAt: Date.now(),
-      },
-    ]);
-    await run(prompt, target);
-  }, [activeId, agent, busy, draft, model, navigate, revealId, run]);
-
-  const regenerate = useCallback(async () => {
-    if (busy) return;
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    if (!lastUser || !activeId) return;
-    await run(lastUser.content, activeId);
-  }, [activeId, busy, messages, run]);
-
-  const stop = useCallback(() => {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    setRevealId(null);
-    setBusy(false);
-  }, []);
-
-  const remove = useCallback(
-    async (target: string) => {
-      await api.deleteConversation(target);
-      const rows = await api.listConversations();
-      setConversations(rows);
-      if (target !== activeId) return;
-      if (rows[0]) await openConversation(rows[0].id);
-      else {
-        setActiveId(null);
-        setMessages([]);
-        navigate("/chat", { replace: true });
-      }
-    },
-    [activeId, navigate, openConversation],
-  );
-
-  const runTerm = useCallback(async (cmd: string) => {
-    const res = await api.runCommand(cmd);
-    setTermLines((prev) => [
-      ...prev,
-      `$ ${cmd}`,
-      ...res.out,
-      ...(res.code === 0 ? [] : [`exit ${res.code}`]),
-    ]);
-  }, []);
-
-  /**
-   * Runs the real toolchain over the project's files and shows the output in
-   * the terminal, which is where build logs belong. A successful build also
-   * switches the preview over to the real output directory instead of the
-   * string-concatenated fallback.
-   */
-  const runBuild = useCallback(async () => {
-    if (!project) return;
-    setBuilding(true);
-    setPane("term");
-    setPaneOpen(true);
-    setTermLines((prev) => [...prev, "$ lolo build"]);
-
-    try {
-      const res = await api.runBuild(project.name, "build");
-      setBuildMs(res.ms);
-
-      setTermLines((prev) => [
-        ...prev,
-        ...(res.output ? res.output.split("\n") : ["(no output)"]),
-        ...(res.skipped
-          ? []
-          : res.ok
-            ? [`✓ build succeeded in ${(res.ms / 1000).toFixed(1)}s`]
-            : [`✗ build failed${res.code === null ? " (timed out)" : ` (exit ${res.code})`}`]),
-      ]);
-
-      const url = res.hasOutput ? api.previewUrl(project.name) : "";
-      setBuiltUrl(url || null);
-      if (url) setPane("preview");
-    } catch (e) {
-      setTermLines((prev) => [
-        ...prev,
-        `✗ ${e instanceof Error ? e.message : String(e)}`,
-      ]);
-    } finally {
-      setBuilding(false);
-    }
-  }, [project]);
-
-  /**
-   * Starts, or stops, a real dev server for the project. Its file watcher then
-   * picks up everything the agent writes, so the preview updates without a
-   * rebuild — the reason this exists rather than "build and look at dist".
-   */
-  const toggleDev = useCallback(async () => {
-    if (!project) return;
-
-    if (liveUrl) {
-      await api.stopDev(project.name).catch(() => {});
-      setLiveUrl(null);
-      setDevState("off");
-      setTermLines((prev) => [...prev, "$ dev server stopped"]);
-      return;
-    }
-
-    setDevState("starting");
-    setPane("term");
-    setPaneOpen(true);
-    setTermLines((prev) => [...prev, "$ lolo dev"]);
-
-    try {
-      const res = await api.startDev(project.name);
-      if (!res.ok) {
-        setDevState("failed");
-        setTermLines((prev) => [...prev, res.reason]);
-        return;
-      }
-      setDevState("on");
-      setLiveUrl(api.devUrl(project.name));
-      setPane("preview");
-      setTermLines((prev) => [
-        ...prev,
-        ...(res.reused ? [] : res.log),
-        `● dev server on :${res.port} — live reload active`,
-      ]);
-    } catch (e) {
-      setDevState("failed");
-      setTermLines((prev) => [
-        ...prev,
-        `✗ ${e instanceof Error ? e.message : String(e)}`,
-      ]);
-    }
-  }, [project, liveUrl]);
-
-  const pickAgent = (key: string) => {
-    setAgent(key);
-    setAgentMenu(false);
-    if (activeId) void api.updateConversation(activeId, { agent: key });
-  };
-
-  const pickModel = (id: string) => {
-    setModel(id);
-    setModelMenu(false);
-    setEffort("");
-    if (activeId) void api.updateConversation(activeId, { model: id });
-  };
-
-  const copy = (mid: string, text: string) => {
-    void navigator.clipboard?.writeText(text);
-    setCopiedId(mid);
-    setTimeout(() => setCopiedId(null), 1600);
-  };
-
-  const openChangedFile = (path: string) => {
-    setPane("file");
-    setPaneOpen(true);
-    setOpenFile(path);
-  };
+  const openThreads = visibleThreads.filter((t) => t.state === "open");
+  const closedThreads = visibleThreads.filter((t) => t.state === "closed");
 
   return (
     <AppShell>
-      <div
-        ref={shellRef}
-        className="flex h-full w-full gap-3 px-3 pt-3 sm:px-5 sm:pt-4 2xl:px-7"
-      >
-        {/* History rail. A drawer, not a permanent column: ChatGPT hides it and
-            the chat owns the full width when you are actually talking to the
-            agent. `railOpen` drives it on every breakpoint. */}
-        <aside
-          className={cn(
-            "scrollbar-thin absolute inset-y-0 left-0 z-40 flex w-[268px] shrink-0 flex-col overflow-y-auto pb-4 pr-2 transition-transform duration-300 lg:relative lg:z-auto lg:translate-x-0",
-            railOpen
-              ? "translate-x-0 pl-2 pt-1 lg:pl-0 lg:pt-0"
-              : "-translate-x-full pl-2 lg:hidden",
-          )}
-        >
-          {/* Scrim: tap to dismiss on narrow screens. */}
+      <div className="flex h-full w-full gap-3 px-3 pt-3 sm:px-5 sm:pt-4 2xl:px-7">
+        {/* History rail */}
+        <aside className={`scrollbar-thin absolute inset-y-0 left-0 z-40 flex w-[320px] shrink-0 flex-col overflow-y-auto pb-4 pr-2 transition-transform duration-300 lg:relative lg:z-auto lg:translate-x-0 ${railOpen ? "translate-x-0" : "-translate-x-full"}`}>
           {railOpen && (
             <button
               type="button"
-              aria-label="Tutup riwayat"
+              aria-label="Tutup daftar"
               onClick={() => setRailOpen(false)}
               className="fixed inset-0 -z-10 cursor-default bg-black/40 backdrop-blur-[2px] lg:hidden"
             />
           )}
 
-          <button
-            type="button"
-            onClick={newRun}
-            className="btn-solid w-full !justify-start !rounded-[10px] !px-3"
-          >
-            <Plus className="size-4" />
-            Obrolan baru
-          </button>
+          <div className="flex items-center gap-2 px-3 pt-2">
+            <Link to="/" className="flex items-center gap-2.5">
+              <div className="flex size-[26px] items-center justify-center">
+                <svg className="size-[58%] overflow-hidden rounded-[16%] bg-ember">
+                  <rect className="absolute inset-[12%] rounded-[10%] bg-background" />
+                </svg>
+              </div>
+              <span className="text-[14px] font-medium tracking-tight text-ink-1">
+                freebuff
+              </span>
+            </Link>
+          </div>
 
-          <label className="relative mt-2.5 block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-ink-4" />
+          <div className="mt-3 flex items-center gap-2 px-3">
+            <Search className="size-3.5 shrink-0 text-ink-4" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Cari obrolan"
-              className="w-full rounded-[10px] border border-transparent bg-surface-2/60 py-2 pl-9 pr-3 text-[13px] text-ink-1 outline-none transition-colors placeholder:text-ink-4 focus:border-line-strong"
+              placeholder="Cari issue/PR…"
+              className="w-full rounded-lg border border-transparent bg-surface-2/60 py-2 pl-8 pr-3 text-[13px] text-ink-1 outline-none transition-colors placeholder:text-ink-4 focus:border-line-strong"
             />
-          </label>
+          </div>
 
-          <p className="mono-label mt-7 mb-2 px-3">riwayat</p>
+          <p className="mono-label mt-5 mb-2 px-3">threads</p>
+
           <div className="space-y-0.5">
-            {history.length === 0 && (
+            {visibleThreads.length === 0 && (
               <p className="px-3 py-2 text-[12.5px] leading-relaxed text-ink-4">
-                {query ? "Tidak ada yang cocok." : "Belum ada obrolan."}
+                {query ? "Tidak ada yang cocok." : "Belum ada thread."}
               </p>
             )}
-            {history.map((c) => (
-              <div
-                key={c.id}
-                className={cn(
-                  "group flex items-center gap-1.5 rounded-[10px] py-2 pl-3 pr-2 transition-colors",
-                  c.id === activeId
-                    ? "bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
-                    : "text-ink-3 hover:bg-surface-2/60 hover:text-ink-1",
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => void openConversation(c.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                >
-                  <MessageSquare className="size-3.5 shrink-0 opacity-50" />
-                  <span className="w-full truncate text-[13px]">{c.title}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void remove(c.id)}
-                  aria-label="Hapus obrolan"
-                  className="shrink-0 rounded p-1 text-ink-4 opacity-0 transition-opacity group-hover:opacity-100 hover:text-ember"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
+
+            {openThreads.map((t) => (
+              <ThreadCard key={t.id} thread={t} />
             ))}
+
+            {closedThreads.length > 0 && (
+              <div className="mt-2 px-3">
+                <p className="mono-label mb-2 px-3 text-[11px] uppercase tracking-[0.1em] text-ink-4">
+                  closed ({closedThreads.length})
+                </p>
+                {closedThreads.map((t) => (
+                  <ThreadCard key={t.id} thread={t} />
+                ))}
+              </div>
+            )}
           </div>
         </aside>
 
-        {/* Conversation */}
-        <div
-          className={cn(
-            "flex min-w-0 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-1",
-            paneOpen ? "hidden md:flex" : "flex flex-1",
-          )}
-          style={paneOpen ? { width: `${split}%` } : undefined}
-        >
-          {/* Header */}
-          <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
-            <button
-              type="button"
-              onClick={() => setRailOpen((v) => !v)}
-              className="rounded-full p-2 text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink-1"
-              aria-label={railOpen ? "Tutup riwayat" : "Buka riwayat"}
-              aria-expanded={railOpen}
-            >
-              <PanelLeft className="size-4" />
-            </button>
-            <div className="flex min-w-0 items-center gap-2.5">
-              <span className="truncate text-[13px] text-ink-1">{slug}</span>
-              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2 py-0.5 font-mono text-[10.5px] text-ink-3">
-                <GitBranch className="size-3" />
-                main
-              </span>
-            </div>
-
-            <div className="ml-auto flex items-center gap-2">
+        {/* Detail */}
+        {activeId ? (
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-1">
+            <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
               <button
                 type="button"
-                onClick={() => setTermOpen((v) => !v)}
-                className="btn-ghost px-2.5 py-1.5"
-                aria-label="Terminal"
+                onClick={() => setRailOpen((v) => !v)}
+                className="rounded-full p-2 text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink-1"
+                aria-label="Tutup daftar"
               >
-                <TerminalIcon className="size-3.5" />
+                <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
               </button>
-              <button
-                type="button"
-                onClick={() => setPaneOpen(true)}
-                className="btn-ghost px-2.5 py-1.5 md:hidden"
-                aria-label="Buka preview"
-              >
-                <ExternalLink className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void toggleDev()}
-                disabled={devState === "starting"}
-                className={cn(
-                  "px-3 py-1.5 text-[12px]",
-                  devState === "on" ? "btn-solid" : "btn-ghost",
-                )}
-                aria-pressed={devState === "on"}
-              >
-                {devState === "starting" ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <span
-                    className={cn(
-                      "size-1.5 rounded-full",
-                      devState === "on"
-                        ? "pulse-dot"
-                        : devState === "failed"
-                          ? "bg-[#c85a50]"
-                          : "bg-ink-4",
-                    )}
-                  />
-                )}
-                {devState === "on" ? "Live" : devState === "failed" ? "Retry" : "Start live"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void runBuild()}
-                disabled={paths.length === 0 || building}
-                className="btn-primary px-3 py-1.5 text-[12px]"
-              >
-                {building ? (
-                  <>
-                    <Loader2 className="size-3.5 animate-spin" />
-                    Building
-                  </>
-                ) : buildMs !== null ? (
-                  <>
-                    <Check className="size-3.5" />
-                    {(buildMs / 1000).toFixed(1)}s
-                  </>
-                ) : (
-                  <>
-                    <Rocket className="size-3.5" />
-                    Build
-                  </>
-                )}
-              </button>
-            </div>
-          </header>
-
-          {/* Transcript */}
-          <div
-            ref={scrollRef}
-            className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-7"
-          >
-            <div className="mx-auto w-full max-w-[780px]">
-              {messages.length === 0 && (
-                <div className="flex min-h-full flex-col items-center justify-center py-10 text-center">
-                  <Logo className="size-[44px]" />
-
-                  <h1 className="display mt-7 text-[30px] leading-[1.15] text-ink-1 sm:text-[38px]">
-                    {greeting()}, {firstName(session?.email)}.
-                  </h1>
-                  <p className="mt-4 max-w-[46ch] text-[15px] leading-[1.75] text-ink-3">
-                    Tanya apa aja. Kalau lo minta bikin sesuatu, agent nulis
-                    filenya, nge-build, lalu nampilin hasilnya di panel
-                    sebelah kanan.
-                  </p>
-
-                  {/* Two-by-two, the way a blank conversation offers a starting
-                      move without burying the composer under a wall of chips. */}
-                  <div className="mt-9 grid w-full max-w-[640px] gap-2.5 sm:grid-cols-2">
-                    {SUGGESTIONS.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => {
-                          setDraft(s);
-                          inputRef.current?.focus();
-                        }}
-                        className="lift sheen flex items-start gap-2.5 rounded-[12px] p-3.5 text-left"
-                      >
-                        <Sparkles className="mt-0.5 size-3.5 shrink-0 text-ink-4" />
-                        <span className="text-[13px] leading-snug text-ink-2">
-                          {s}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-8">
-                {messages.map((m) => {
-                  const who = getAgent(m.agent ?? "lolo");
-                  const isUser = m.role === "user";
-                  const streaming = m.id === revealId;
-                  const text = streaming
-                    ? m.content.slice(0, Math.max(1, Math.floor(revealChars)))
-                    : m.content;
-                  const isNewest = messages[messages.length - 1]?.id === m.id;
-
-                  return (
-                    <article
-                      key={m.id}
-                      className={cn(
-                        "flex flex-col",
-                        isUser ? "items-end" : "items-start",
-                      )}
-                    >
-                      {!isUser && (
-                        <div className="mb-2.5 flex flex-wrap items-center gap-2">
-                          <span
-                            className={cn(
-                              "size-1.5 rounded-full",
-                              who.accent === "warm" ? "bg-ember" : "bg-[#9db4a8]",
-                            )}
-                          />
-                          <span className="font-mono text-[11.5px] text-ink-2">
-                            {who.name}
-                          </span>
-                          <span className="font-mono text-[10px] text-ink-4">
-                            {m.model}
-                          </span>
-                          {m.guardrail && (
-                            <span className="tag">
-                              <ShieldAlert className="size-3" />
-                              {GUARDRAIL_LABELS[m.guardrail]}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <div
-                        className={cn(
-                          "max-w-full rounded-[14px] border px-4 py-3.5 text-[14.5px]",
-                          isUser
-                            ? "max-w-[88%] border-ember/25 bg-ember-soft text-ink-1"
-                            : m.blocked
-                              ? "border-border bg-surface-2 text-ink-2"
-                              : "w-full border-border bg-background/40 text-ink-2",
-                        )}
-                      >
-                        {m.blocked ? (
-                          <p className="text-[13.5px] leading-[1.7]">{text}</p>
-                        ) : (
-                          renderBody(text)
-                        )}
-                        {streaming && (
-                          <span className="ml-0.5 inline-block h-[15px] w-[7px] translate-y-[2px] animate-pulse bg-ember align-middle" />
-                        )}
-                      </div>
-
-                      {/* File changes live right here in the conversation */}
-                      {!isUser && !m.blocked && !streaming && isNewest && changes.length > 0 && (
-                        <div className="w-full space-y-2">
-                          {changes.map((c) => (
-                            <ChangeCard
-                              key={c.path}
-                              change={c}
-                              onOpen={openChangedFile}
-                            />
-                          ))}
-                        </div>
-                      )}
-
-                      {!isUser && !m.blocked && (
-                        <>
-                          <ul className="mt-3.5 space-y-1.5">
-                            <Step done>
-                              Read the request · {who.name} dispatched
-                            </Step>
-                            <Step done>
-                              Read {paths.length}{" "}
-                              {paths.length === 1 ? "file" : "files"} · mapped
-                              the project
-                            </Step>
-                            <Step done>Screened 7 guardrail rules · clean</Step>
-                            {m.latencyMs ? (
-                              <Step done>
-                                Done · {changes.length}{" "}
-                                {changes.length === 1
-                                  ? "file changed"
-                                  : "files changed"}
-                              </Step>
-                            ) : (
-                              <Step running>Working…</Step>
-                            )}
-                          </ul>
-
-                          {!streaming && (
-                            <div className="mt-3 flex items-center gap-1 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100">
-                              <button
-                                type="button"
-                                onClick={() => copy(m.id, m.content)}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-mono text-[10.5px] text-ink-4 transition-colors hover:text-ink-1"
-                              >
-                                {copiedId === m.id ? (
-                                  <Check className="size-3" />
-                                ) : (
-                                  <Copy className="size-3" />
-                                )}
-                                {copiedId === m.id ? "tersalin" : "salin"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void regenerate()}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-mono text-[10.5px] text-ink-4 transition-colors hover:text-ink-1"
-                              >
-                                <RefreshCw className="size-3" />
-                                ulang
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-
-              {busy && messages[messages.length - 1]?.role === "user" && (
-                <ul className="mt-8 space-y-2">
-                  <Step done>
-                    Read the request · {getAgent(agent).name} dispatched
-                  </Step>
-                  <Step done>
-                    Read {paths.length} {paths.length === 1 ? "file" : "files"} ·
-                    mapped the project
-                  </Step>
-                  <Step done>Screened 7 guardrail rules · clean</Step>
-                  <Step running>Mapping the project…</Step>
-                  <Step>Writing files…</Step>
-                </ul>
-              )}
-              <div ref={endRef} />
-            </div>
-          </div>
-
-          {/* Terminal drawer, inside the same column */}
-          {termOpen && (
-            <div className="flex h-44 shrink-0 flex-col border-t border-border bg-[var(--bg-2)]">
-              <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-[1.85] text-ink-3">
-                {termLines.map((l, i) => (
-                  <p
-                    key={i}
-                    className={cn(
-                      l.startsWith("$") ? "text-ink-2" : undefined,
-                      l.startsWith("exit") || l.includes("No such")
-                        ? "text-[#c85a50]"
-                        : l.startsWith("✓")
-                          ? "text-[#4aa06e]"
-                          : undefined,
-                    )}
-                  >
-                    {l}
-                  </p>
-                ))}
-              </div>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const cmd = termInput.trim();
-                  if (!cmd) return;
-                  setTermInput("");
-                  void runTerm(cmd);
-                }}
-                className="flex items-center gap-2 border-t border-border px-3 py-2"
-              >
-                <span className="font-mono text-[11px] text-ember">$</span>
-                <input
-                  value={termInput}
-                  onChange={(e) => setTermInput(e.target.value)}
-                  placeholder="ls -R · cat server/index.ts · wc · tsc"
-                  className="flex-1 bg-transparent font-mono text-[11px] text-ink-2 outline-none placeholder:text-ink-4"
-                />
-                <span className="hidden font-mono text-[9.5px] text-ink-4 sm:inline">
-                  ls · cat · wc · tsc
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="flex size-4 items-center justify-center rounded-full bg-ember/10">
+                  <svg className="size-2.5 text-ember" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
                 </span>
-              </form>
-            </div>
-          )}
-
-          {/* Composer */}
-          <div className="shrink-0 border-t border-border px-4 py-3.5 sm:px-6">
-            <div className="mx-auto w-full max-w-[780px]">
-              <div className="relative rounded-[14px] border border-border bg-background/50 p-2.5 transition-colors focus-within:border-ember/50">
-                <textarea
-                  ref={inputRef}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void send();
-                    }
-                  }}
-                  rows={2}
-                  placeholder={`Ask ${getAgent(agent).name}…`}
-                  className="scrollbar-thin max-h-40 w-full resize-none bg-transparent px-1.5 py-1 text-[14.5px] leading-[1.6] text-ink-1 outline-none placeholder:text-ink-4"
-                />
-
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAgentMenu((v) => !v);
-                        setModelMenu(false);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 font-mono text-[11px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
-                    >
-                      <span
-                        className={cn(
-                          "size-1.5 rounded-full",
-                          getAgent(agent).accent === "warm"
-                            ? "bg-ember"
-                            : "bg-[#9db4a8]",
-                        )}
-                      />
-                      {getAgent(agent).name}
-                      <ChevronDown className="size-3" />
-                    </button>
-                    {agentMenu && (
-                      <>
-                        <button
-                          type="button"
-                          aria-label="Tutup"
-                          className="fixed inset-0 z-10 cursor-default"
-                          onClick={() => setAgentMenu(false)}
-                        />
-                        <div className="absolute bottom-full left-0 z-20 mb-2 w-64 overflow-hidden rounded-[12px] border border-border bg-surface-2 shadow-2xl">
-                          {AGENTS.map((a) => (
-                            <button
-                              key={a.key}
-                              type="button"
-                              onClick={() => pickAgent(a.key)}
-                              className="block w-full border-b border-border px-3.5 py-2.5 text-left transition-colors last:border-0 hover:bg-surface-3"
-                            >
-                              <span className="text-[12.5px] text-ink-1">
-                                {a.name}
-                              </span>
-                              <span className="mt-0.5 block text-[11px] leading-snug text-ink-4">
-                                {a.tagline}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setModelMenu((v) => !v);
-                        setAgentMenu(false);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 font-mono text-[11px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
-                    >
-                      {activeModel.label}
-                      <ChevronDown className="size-3" />
-                    </button>
-                    {modelMenu && (
-                      <>
-                        <button
-                          type="button"
-                          aria-label="Tutup"
-                          className="fixed inset-0 z-10 cursor-default"
-                          onClick={() => setAgentMenu(false)}
-                        />
-                        <div className="scrollbar-thin absolute bottom-full left-0 z-20 mb-2 max-h-80 w-96 overflow-y-auto rounded-[12px] border border-border bg-surface-2 shadow-2xl">
-                          {MODELS.map((m) => (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => pickModel(m.id)}
-                              className="block w-full border-b border-border px-3.5 py-3 text-left transition-colors last:border-0 hover:bg-surface-3"
-                            >
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-[12.5px] text-ink-1">
-                                  {m.label}
-                                </span>
-                                {m.unmetered ? (
-                                  <span className="tag">unmetered</span>
-                                ) : m.freeHours > 0 ? (
-                                  <span className="tag tag-quiet">
-                                    {m.freeHours} jam/hari
-                                  </span>
-                                ) : (
-                                  <span className="tag tag-quiet">berbayar</span>
-                                )}
-                              </div>
-                              <p className="mt-1 text-[11.5px] leading-snug text-ink-3">
-                                {m.bestFor}
-                              </p>
-                              <p className="mt-1 font-mono text-[10px] text-ink-4">
-                                {m.id} ·{" "}
-                                {m.efforts.length > 0
-                                  ? m.efforts.join(" · ")
-                                  : "effort dibuang"}
-                              </p>
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {activeModel.efforts.length > 0 && (
-                    <div className="hidden gap-1 sm:flex">
-                      {activeModel.efforts.map((lv) => (
-                        <button
-                          key={lv}
-                          type="button"
-                          onClick={() => setEffort(effort === lv ? "" : lv)}
-                          className={cn(
-                            "rounded-full border px-2 py-1 font-mono text-[10.5px] transition-colors",
-                            effort === lv
-                              ? "border-ember/50 bg-ember-soft text-ember"
-                              : "border-border text-ink-4 hover:text-ink-2",
-                          )}
-                        >
-                          {lv}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => (busy ? stop() : void send())}
-                    disabled={!busy && (!draft.trim() || Boolean(revealId))}
-                    aria-label={busy ? "Berhenti" : "Kirim"}
-                    className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-full bg-ember text-[#17120f] transition-all hover:bg-[var(--accent-warm-hover)] disabled:opacity-30"
-                  >
-                    {busy ? (
-                      <Square className="size-3 fill-current" />
-                    ) : (
-                      <ArrowUp className="size-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 font-mono text-[10px] text-ink-4">
-                <span className="inline-flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      "size-1.5 rounded-full",
-                      busy ? "animate-pulse bg-ember" : "bg-[#4aa06e]",
-                    )}
-                  />
-                  sandbox {busy ? "running" : "idle"}
+                <span className="truncate text-[13px] text-ink-1">
+                  {activeId.startsWith("issue-") ? "GitHub Issue" : "GitHub PR"}
                 </span>
-                <span>{paths.length} files</span>
-                {changes.length > 0 && (
-                  <span>
-                    <span className="text-[#4aa06e]">+{totals.added}</span>{" "}
-                    <span className="text-[#c85a50]">−{totals.removed}</span>
-                  </span>
-                )}
-                <span className="ml-auto">Enter kirim</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Divider */}
-        {paneOpen && (
-          <div
-            onPointerDown={() => {
-              dragging.current = true;
-              document.body.style.cursor = "col-resize";
-              document.body.style.userSelect = "none";
-            }}
-            className="hidden w-1 shrink-0 cursor-col-resize items-center justify-center transition-colors hover:bg-ember/40 md:flex"
-          >
-            <ChevronsRight className="size-3 rotate-0 text-ink-4/50" />
-          </div>
-        )}
-
-        {/* Live pane — preview and code together, no tabs */}
-        {paneOpen && (
-          <div
-            className={cn(
-              "min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-surface-1",
-              paneOpen ? "flex" : "hidden",
-            )}
-          >
-            <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2.5">
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => setPane("preview")}
-                  className={cn(
-                    "rounded-full border px-3 py-1 font-mono text-[11px] transition-colors",
-                    pane === "preview"
-                      ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
-                      : "border-transparent text-ink-4 hover:text-ink-2",
-                  )}
-                >
-                  Preview
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPane("file")}
-                  className={cn(
-                    "rounded-full border px-3 py-1 font-mono text-[11px] transition-colors",
-                    pane === "file"
-                      ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
-                      : "border-transparent text-ink-4 hover:text-ink-2",
-                  )}
-                >
-                  Code · {paths.length}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPane("data")}
-                  className={cn(
-                    "rounded-full border px-3 py-1 font-mono text-[11px] transition-colors",
-                    pane === "data"
-                      ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
-                      : "border-transparent text-ink-4 hover:text-ink-2",
-                  )}
-                >
-                  Data
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPane("term")}
-                  className={cn(
-                    "rounded-full border px-3 py-1 font-mono text-[11px] transition-colors",
-                    pane === "term"
-                      ? "border-line-strong bg-surface-2 text-ink-1 shadow-[inset_0_1px_0_0_var(--spec)]"
-                      : "border-transparent text-ink-4 hover:text-ink-2",
-                  )}
-                >
-                  Terminal
-                </button>
-              </div>
-              {deployed && (
-                <span className="tag tag-quiet ml-2">
-                  <span className="size-1.5 rounded-full bg-[#4aa06e]" />
-                  {slug}.lolo.app
+                <span className="font-mono text-[10.5px] text-ink-4">
+                  #{activeId.split("-")[1]}
                 </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setPaneOpen(false)}
-                aria-label="Tutup panel"
-                className="ml-auto rounded p-1 text-ink-4 transition-colors hover:text-ink-1"
-              >
-                <PanelRightClose className="size-4" />
-              </button>
+              </div>
             </header>
 
-            {pane === "data" ? (
-              <DataPanel project={project?.name ?? "lolo/lolo-ai"} />
-            ) : pane === "term" ? (
-              <div className="flex min-h-0 flex-1 flex-col bg-[var(--bg-2)]">
-                <div className="min-h-0 flex-1 overflow-y-auto p-4 font-mono text-[11.5px] leading-[1.8]">
-                  {termLines.map((l, i) => (
-                    <div key={i} className="whitespace-pre-wrap text-ink-2">
-                      {l}
-                    </div>
-                  ))}
+            <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-7">
+              <div className="mx-auto w-full max-w-[780px]">
+                {/* placeholder thread body */}
+                <div className="space-y-4">
+                  <h1 className="display text-[28px] leading-[1.15] text-ink-1">
+                    welcome to freebuff
+                  </h1>
+                  <p className="max-w-[46ch] text-[14px] leading-[1.7]">
+                    This public chat is the open threads of CodebuffAI/freebuff.
+                    The detail view for the active thread is shown in the left
+                    rail.
+                  </p>
                 </div>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void runTerm(termInput);
-                    setTermInput("");
-                  }}
-                  className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5"
-                >
-                  <span className="font-mono text-[12px] text-ink-4">$</span>
-                  <input
-                    value={termInput}
-                    onChange={(e) => setTermInput(e.target.value)}
-                    placeholder="ls -R · cat src/app.ts · grep TODO · wc index.html"
-                    className="flex-1 bg-transparent font-mono text-[12px] text-ink-1 outline-none placeholder:text-ink-4"
-                  />
-                </form>
               </div>
-            ) : pane === "preview" ? (
-              <div className="relative min-h-0 flex-1 bg-[var(--bg-2)]">
-                {liveUrl || builtUrl || preview ? (
-                  <iframe
-                    title="Preview"
-                    key={liveUrl ?? builtUrl ?? "fallback"}
-                    src={liveUrl ?? builtUrl ?? undefined}
-                    srcDoc={liveUrl || builtUrl ? undefined : (preview ?? undefined)}
-                    sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
-                    className="h-full w-full border-0"
+            </div>
+
+            <footer className="shrink-0 border-t border-border px-4 py-3.5 sm:px-6">
+              <div className="mx-auto w-full max-w-[780px]">
+                <div className="relative rounded-[12px] border border-border bg-background/50 p-2.5 transition-colors focus-within:border-ember/50">
+                  <textarea
+                    rows={2}
+                    placeholder="Kilang thread di GitHub…"
+                    className="scrollbar-thin max-h-40 w-full resize-none bg-transparent px-1.5 py-1 text-[14px] leading-[1.6] text-ink-1 outline-none placeholder:text-ink-4"
                   />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center gap-2.5 px-8 text-center">
-                    <p className="text-[14px] text-ink-2">
-                      Belum ada yang bisa dirender.
-                    </p>
-                    <p className="max-w-[34ch] text-[12.5px] leading-relaxed text-ink-4">
-                      Minta agent bikin aplikasi web. Begitu file{" "}
-                      <code className="font-mono text-ink-3">index.html</code>{" "}
-                      ada, halamannya nampil di sini — otomatis, tanpa refresh.
-                    </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="font-mono text-[11px] text-ember">#</span>
+                    <input
+                      placeholder="github.com/CodebuffAI/freebuff/issues/123"
+                      className="flex-1 bg-transparent font-mono text-[12px] text-ink-2 outline-none placeholder:text-ink-4"
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary px-3 py-1.5 text-[12px]"
+                    >
+                      Buka di GitHub
+                    </button>
                   </div>
-                )}
-                <span className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/80 px-2.5 py-1 font-mono text-[10px] text-ink-3 backdrop-blur">
-                  <span className="size-1.5 rounded-full bg-[#4aa06e]" />
-                  {liveUrl ? "live · watching" : builtUrl ? "built output" : "static preview"}
-                </span>
-              </div>
-            ) : (
-              <div className="grid min-h-0 flex-1 grid-cols-[minmax(150px,210px)_1fr]">
-                <div className="scrollbar-thin overflow-y-auto border-r border-border py-1.5">
-                  {paths.map((p) => {
-                    const Icon = FILE_ICON[langOf(p)] ?? FileCode2;
-                    const touched = changes.some((c) => c.path === p);
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setOpenFile(p)}
-                        className={cn(
-                          "flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11.5px] transition-colors",
-                          openFile === p
-                            ? "bg-ember-soft text-ink-1"
-                            : "text-ink-3 hover:bg-surface-2",
-                        )}
-                      >
-                        <Icon className="size-3.5 shrink-0 text-ink-4" />
-                        <span className="truncate">{p.split("/").pop()}</span>
-                        {touched && (
-                          <span className="ml-auto size-1.5 shrink-0 rounded-full bg-ember" />
-                        )}
-                      </button>
-                    );
-                  })}
                 </div>
-                <pre className="scrollbar-thin overflow-auto bg-[var(--bg-2)] p-4 font-mono text-[11.5px] leading-[1.75] text-ink-2">
-                  {openFile && project?.files[openFile]
-                    ? project.files[openFile]
-                    : "Pilih file di kiri."}
-                </pre>
               </div>
-            )}
+            </footer>
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-1 flex-col items-center justify-center border border-border bg-surface-1">
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+              <div className="flex size-14 items-center justify-center rounded-full border border-border bg-surface-2">
+                <MessageSquare className="size-7 text-ember" />
+              </div>
+              <h1 className="display mt-6 text-[34px] text-ink-1">
+                freebuff Chat
+              </h1>
+              <p className="mt-3 max-w-[46ch] text-[14px] leading-[1.75] text-ink-3">
+                The public threads of CodebuffAI/freebuff, open for anyone to
+                read. The left rail holds the list; this panel is the detail
+                view of whichever thread you pick.
+              </p>
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                <Link to="/web/" className="btn-ghost">
+                  <Code2 className="size-3.5" />
+                  File tree
+                </Link>
+                <Link to="/dashboard/" className="btn-primary">
+                  <TrendingUp className="size-3.5" />
+                  Analytics
+                </Link>
+              </div>
+            </div>
           </div>
         )}
-
-        {/* Collapsed state — reopen */}
-        {!paneOpen && (
-          <button
-            type="button"
-            onClick={() => setPaneOpen(true)}
-            className="hidden shrink-0 items-center gap-2 self-start rounded-[12px] border border-border bg-surface-1 px-3.5 py-2.5 font-mono text-[11px] text-ink-3 transition-colors hover:text-ink-1 md:flex"
-          >
-            <PanelRightOpen className="size-3.5" />
-            Workspace
-          </button>
-        )}
       </div>
-
-      {/* Mobile toggle */}
-      {paneOpen && (
-        <button
-          type="button"
-          onClick={() => setPaneOpen(false)}
-          className="fixed right-4 bottom-4 z-40 flex size-11 items-center justify-center rounded-full border border-border bg-surface-2 text-ink-2 shadow-xl md:hidden"
-          aria-label="Tutup preview"
-        >
-          <X className="size-4" />
-        </button>
-      )}
     </AppShell>
   );
 }

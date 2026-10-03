@@ -12,6 +12,8 @@ const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Chat = lazy(() => import("./pages/Chat.tsx"));
 const Web = lazy(() => import("./pages/Web.tsx"));
+const Panel = lazy(() => import("./pages/Panel.tsx"));
+const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const Server = lazy(() => import("./pages/Server.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
@@ -43,6 +45,16 @@ function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/auth" element={<AuthPage redirectAfterAuth="/web" />} />
+
+            {/* Public routes — read-only freebuff data, no auth, no keys. */}
+            <Route path="/web" element={<Web />} />
+            <Route path="/web/:id" element={<Web />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat/:id" element={<Chat />} />
+            <Route path="/panel" element={<Panel />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+
+            {/* Authenticated product routes, kept as before. */}
             <Route
               path="/chat"
               element={
@@ -83,6 +95,7 @@ function App() {
                 </RequireAuth>
               }
             />
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
