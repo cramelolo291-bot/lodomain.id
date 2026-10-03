@@ -5,7 +5,8 @@
 // REST API and never touches the freebuff/ source folder, the existing api.ts
 // seam, or any backend command. This route is intentionally unauthenticated.
 
-import { useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+
 import { Link } from "react-router";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -59,8 +60,8 @@ function labelClass(name: string): string {
   return LABEL_COLORS[name.toLowerCase().replace(/[\s-]/g, "").replace(/^[a-z]/, (c) => c.toUpperCase())] ?? "bg-surface-2 text-ink-4";
 }
 
+import { useEffect, useState, useMemo } from "react";
 import { fetchFreebuffData } from "@/lib/frebbuff-data";
-import { useEffect } from "react";
 
 export default function Web() {
   const [data, setData] = useState<{
@@ -168,7 +169,7 @@ export default function Web() {
               <div className="grid grid-cols-2 gap-4 p-6 sm:grid-cols-4">
                 {[
                   { label: "stars", value: repo.stars, sub: "github", icon: Star, color: "text-amber-500" },
-                  { label: "forks", value: repo.forks, sub: "copies", icon: Mirror, color: "text-[#5a6b7a]" },
+                  { label: "forks", value: repo.forks, sub: "copies", icon: GitRepository, color: "text-[#5a6b7a]" },
                   { label: "open issues", value: repo.openIssues, sub: "reported", icon: GitBranch, color: "text-[#c85a50]" },
                   { label: "open prs", value: repo.prs, sub: "in flight", icon: GitPullRequest, color: "text-[#4aa06e]" },
                 ].map((s) => (
