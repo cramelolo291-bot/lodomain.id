@@ -263,8 +263,8 @@ export function summarize(issues: FreebuffGithubResponse["items"], prs: Freebuff
   return {
     openIssues: openItem(issues).length,
     openPrs: openPr(prs).length,
-    newestIssue: (sortIssues([...issues] as Array<FreebuffIssue | FreebuffPr>).filter((i): i is FreebuffIssue => "pull_request" in i === false || i.pull_request === false)) [0] ?? null,
-    newestPr: (sortPrs([...prs] as Array<FreebuffIssue | FreebuffPr>).filter((p): p is FreebuffPr => p.pull_request === true)) [0] ?? null,
+    newestIssue: sortIssues(issues as Array<FreebuffIssue | FreebuffPr>).find((i) => !i.pull_request && i.state === "open") ?? null,
+    newestPr: sortPrs(prs as Array<FreebuffIssue | FreebuffPr>).find((p) => p.pull_request && p.state === "open") ?? null,
     totalFiles: 0,
   };
 }

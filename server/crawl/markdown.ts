@@ -85,10 +85,146 @@ export function toText(html: string): string {
   if (!root) return "";
   return decodeEntities(collapse(textOf(root))).replace(/\s{2,}/g, " ");
 }
-
-// ── Node -> Markdown ─────────────────────────────────────────────────────────
-
 function nodeToMarkdown(node: typeof parse(""), baseUrl: string, links: string[]): string {
+
+  if (node.tag === "text") return escapeText(node.text);
+
+  if (isHeadTag(node.tag)) return "";
+
+  switch (node.tag) {
+    case "h1":
+    case "h2":
+    case "h3":
+    case "h4":
+    case "h5":
+    case "h6": {
+      const level = Number(node.tag.slice(1));
+      return "\n".repeat(level - 1) + "#".repeat(level) + " " + escapeText(textOf(node)) + "\n\n";
+    }
+    case "p": {
+      const text = textOf(node);
+      const cleaned = text
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/p>/gi, "")
+        .replace(/<[^>]+>/g, "");
+      return trimTrailing(escapeText(collapse(cleaned))) + "\n\n";
+    }
+    case "a": {
+      const href = attrOf(node, "href");
+      const text = textOf(node).replace(/<[^>]+>/g, "");
+      const title = attrOf(node, "title") ?? "";
+      const label = collapse(text) || decodeEntities(collapse(title));
+      if (!href) return escapeText(label);
+      try {
+        const resolved = new URL(href, baseUrl).toString();
+        links.push(`[${label}]${resolved}`);
+        return escapeText(label);
+      } catch {
+        links.push(`[${label}]${href}`);
+        return escapeText(label);
+      }
+    }
+    case "img": {
+      const src = attrOf(node, "src");
+      const alt = attrOf(node, "alt") ?? "";
+      if (!src) return "";
+      try {
+        const resolved = new URL(src, baseUrl).toString();
+        return `![${alt}](${resolved})`;
+      } catch {
+        return `![${alt}](${src})`;
+      }
+    }
+    case "blockquote": {
+      const lines = textOf(node).split("\n").map((l) => l.trim());
+      const cleaned = lines
+        .map((l) => l.replace(/<[^>]+>/g, ""))
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .join("\n");
+      return cleaned ? "> " + collapse(cleaned).replace(/
+/g, "\n> ") + "\n\n" : "";
+    }
+    case "hr":
+      return "\n---\n\n";
+    case "pre": {
+      const code = textOf(node).replace(/<[^>]+>/g, "");
+      return "\n```\n" + code.trimEnd() + "\n```\n\n";
+    }
+    case "code": {
+      const text = escapeText(textOf(node).replace(/<[^>]+>/g, ""));
+      return "`" + text.replace(/`/g, "``") + "`";
+    }
+    case "em":
+    case "i":
+      return "*" + escapeText(textOf(node).replace(/<[^>]+>/g, "")) + "*";
+    case "strong":
+    case "b":
+      return "**" + escapeText(textOf(node).replace(/<[^>]+>/g, "")) + "**";
+    case "u":
+      return "<u>" + escapeText(textOf(node).replace(/<[^>]+>/g, "")) + "</u>";
+    case "del":
+    case "s":
+      return "~~" + escapeText(textOf(node).replace(/<[^>]+>/g, "")) + "~~";
+    case "li": {
+      const text = textOf(node).replace(/<[^>]+>/g, "");
+      const cleaned = collapse(decodeEntities(text));
+      return "- " + cleaned + "\n";
+    }
+    case "ul":
+    case "ol": {
+      const items = node.children
+        .map((c) => (c.tag === "li" ? c.text : ""))
+        .map((t) => t.replace(/<[^>]+>/g, ""))
+        .map((t) => decodeEntities(collapse(t)).trim())
+        .filter(Boolean);
+      if (items.length === 0) return "";
+      const marker = node.tag === "ol" ? (i) => `${i + 1}.` : () => "-";
+      return items.map((item, i) => `${marker(i)} ${item}
+`).join("");
+    }
+    case "table": {
+      const rows = node.children
+        .map((r) =>
+          r.tag === "tr"
+            ? r.children
+                .map((c) => {
+                  if (c.tag === "th") return escapeText(textOf(c));
+                  if (c.tag === "td") return escapeText(textOf(c));
+                  return "";
+                })
+                .join(" | ")
+            : ""
+        )
+        .filter(Boolean);
+      if (rows.length < 2) return "";
+      const header = rows[0]!.split("|").map((c) => c.trim()).join(" | ");
+      const separator = header.split("|").map(() => "---").join(" | ");
+      return rows.join("\n") + "\n" + separator + "\n\n";
+    }
+    case "thead":
+    case "tbody":
+      return node.children.map((c) => nodeToMarkdown(c, baseUrl, links)).join("");
+    case "td":
+    case "th": {
+      const cell = escapeText(textOf(node).replace(/<[^>]+>/g, ""));
+      return " " + cell + " ";
+    }
+    case "br":
+      return "\n";
+    case "div":
+    case "section":
+    case "article":
+    case "main":
+      return node.children.map((c) => nodeToMarkdown(c, baseUrl, links)).join("");
+    default: {
+      const inline = node.children
+        .map((c) => (c.tag === "text" ? c.text : nodeToMarkdown(c, baseUrl, links)))
+        .join("");
+      return escapeText(inline);
+    }
+  }
+
   if (node.tag === "text") return escapeText(node.text);
 
   if (isHeadTag(node.tag)) return "";

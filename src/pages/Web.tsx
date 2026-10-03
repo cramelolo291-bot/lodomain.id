@@ -5,7 +5,7 @@
 // REST API and never touches the freebuff/ source folder, the existing api.ts
 // seam, or any backend command. This route is intentionally unauthenticated.
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -60,7 +60,7 @@ function labelClass(name: string): string {
 }
 
 import { fetchFreebuffData } from "@/lib/frebbuff-data";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 export default function Web() {
   const [data, setData] = useState<{

@@ -14,6 +14,7 @@ import { AppShell } from "@/components/AppShell";
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   ChevronRight,
   Clock,
   Code2,
@@ -147,7 +148,11 @@ function PanelCard({
   );
 }
 
-function RowCard({ row }: { row: PanelRow }) {
+function RowCard({
+  row,
+}: {
+  row: PanelRow;
+}) {
   const isPr = "mergedAt" in row;
   const date = isPr && row.mergedAt
     ? row.mergedAt
@@ -229,7 +234,7 @@ export default function Panel({ issues, prs }: Props) {
         i.title.toLowerCase().includes(q) ||
         i.user.toLowerCase().includes(q) ||
         (i.body ?? "").toLowerCase().includes(q);
-      const matchesL = !label || i.labels.some((l) => l.name.toLowerCase().includes(label));
+      const matchesL = !label || i.labels.some((l) => l.toLowerCase().includes(label));
       return matchesQ && matchesL;
     });
   }, [allIssues, query, filterLabel]);
@@ -243,7 +248,7 @@ export default function Panel({ issues, prs }: Props) {
         p.title.toLowerCase().includes(q) ||
         p.user.toLowerCase().includes(q) ||
         (p.body ?? "").toLowerCase().includes(q);
-      const matchesL = !label || p.labels.some((l) => l.name.toLowerCase().includes(label));
+      const matchesL = !label || p.labels.some((l) => l.toLowerCase().includes(label));
       return matchesQ && matchesL;
     });
   }, [allPrs, query, filterLabel]);
