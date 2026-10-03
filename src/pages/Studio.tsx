@@ -44,6 +44,7 @@ export default function Studio() {
       role: "bot",
       text:
         "Studio is wired to the live repository. Pick a tool on the left, or type a slash command — /list_files, /search_files, /open_file, /list_issues, /list_prs, /repo_stats.\n\n" +
+        "Anything else goes to the server-side model router, which picks a provider for you.\n\n" +
         "To save a file the chat writes, wrap it in a fenced block whose first word is the path:\n```notes/findings.md\n...content...\n```",
     },
   ]);
@@ -107,16 +108,66 @@ export default function Studio() {
       return;
     }
 
-    // No model is configured in this environment, so rather than invent an
-    // answer the chat says so and points at what it *can* do.
-    setMsgs((m) => [
-      ...m,
-      {
-        role: "bot",
-        text:
-          "No language model is connected here, so I can run tools and write files but I cannot answer free-form questions yet. Add a key in the Keys tab and I will wire the model call.\n\nRight now I can: /list_files, /search_files, /open_file, /list_issues, /list_prs, /repo_stats — and save any file you ask for in a fenced block.",
-      },
-    ]);
+    // Free-form: ask the server-side router, which picks a provider. The
+    // browser never holds a vendor key.
+    void askRouter(text);
+  }
+
+  async function askRouter(prompt: string) {
+    setBusy(true);
+    try {
+      const history = msgs
+        .filter((m): m is Extract<Msg, { role: "user" }> => m.role === "user")
+        .map((m) => ({ role: "user" as const, content: m.text }))
+        .slice(-8);
+      const res = await fetch("/llm/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are the assistant inside Lolo Studio. The user is working with the browser-use/jev-ultrafast repository. Tools are invoked by the user with slash commands such as /list_files, /search_files, /open_file. Keep answers short and concrete.",
+            },
+            ...history,
+            { role: "user" as const, content: prompt },
+          ],
+        }),
+      });
+      const json = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        lolo?: { provider?: string; fellBack?: boolean; note?: string };
+        error?: { message?: string };
+      };
+      if (!res.ok || json.error) {
+        throw new Error(json.error?.message ?? `router returned ${res.status}`);
+      }
+      const content = json.choices?.[0]?.message?.content?.trim();
+      const meta = json.lolo;
+      setMsgs((m) => [
+        ...m,
+        {
+          role: "bot",
+          text:
+            (content || "(the model returned nothing)") +
+            (meta?.provider ? `\n\n— answered by ${meta.provider}${meta.fellBack ? ` (${meta.note})` : ""}` : ""),
+        },
+      ]);
+    } catch (e) {
+      // The router degrades on its own; if it cannot answer at all, say so
+      // plainly instead of inventing a reply.
+      setMsgs((m) => [
+        ...m,
+        {
+          role: "error",
+          text:
+            `${e instanceof Error ? e.message : String(e)}\n\nNo model answered. Tools still work without one — try /repo_stats or /list_files.`,
+        },
+      ]);
+    } finally {
+      setBusy(false);
+    }
   }
 
   const counts = useMemo(

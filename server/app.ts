@@ -23,6 +23,7 @@ import { build } from "./routes/build";
 import { panel } from "./routes/panel";
 import { turnStream } from "./routes/turn-stream";
 import { openai } from "./routes/openai-compat";
+import { llmRouter } from "./routes/llm-router";
 
 export function createApp() {
   const app = new Hono();
@@ -39,6 +40,9 @@ export function createApp() {
   app.use("/api/auth/verify", rateLimit({ limit: 20, windowMs: 60_000, scope: "verify" }));
   app.use("/api/keys", rateLimit({ limit: 20, windowMs: 60_000, scope: "keys" }));
   app.use("/api/turn", rateLimit({ limit: 60, windowMs: 60_000, scope: "turn" }));
+  // The LLM router is unauthenticated but spends the owner's provider quota,
+  // so it is rate-limited like the other cost-incurring endpoints.
+  app.use("/llm/*", rateLimit({ limit: 20, windowMs: 60_000, scope: "llm" }));
   // `/api/turn/stream` deliberately limits itself in its own router, because
   // that mount point also carries a per-conversation budget. Limiting it here
   // too would charge every stream twice against the same bucket.
@@ -81,6 +85,19 @@ export function createApp() {
   // OpenAI router whose prefix is `/`.
   app.route("/api", turnStream);
   app.route("/", openai);
+  // The LLM router sits in front of every provider, so the frontend never
+  // holds a vendor key or names a vendor.
+  //
+  // Mounted at /llm, deliberately outside both namespaces it would otherwise
+  // collide with:
+  //   * at "/" it would shadow openai-compat, which already owns
+  //     /v1/models and /v1/chat/completions as an authenticated gateway;
+  //   * under "/api" it would sit behind the `use("*", requireAuth)` that the
+  //     conversations router installs, and every call would 401.
+  app.route("/llm", llmRouter(() => ({
+    openrouterKey: process.env.OPENROUTER_API_KEY ?? "",
+    openrouterModel: process.env.OPENROUTER_MODEL || undefined,
+  })));
 
   app.onError((err, c) => {
     // A schema mismatch is the caller's fault and needs a useful answer: which
