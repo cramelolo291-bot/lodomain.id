@@ -58,6 +58,8 @@ export type RouterConfig = {
   openrouterKey: string;
   /** Override the free-model list from the environment. */
   openrouterModel?: string;
+  /** Per-provider base URL, the way 9router resolves these from a registry. */
+  openrouterBase?: string;
   localBase?: string;
   /** Force a provider regardless of availability (used by tests). */
   force?: ProviderId;
@@ -126,7 +128,8 @@ async function callOpenRouter(
   opts: { temperature?: number; max_tokens?: number },
   doFetch: FetchLike,
 ): Promise<ChatChunk> {
-  const res = await doFetch(`${OPENROUTER_BASE}/chat/completions`, {
+  const base = cfg.openrouterBase ?? OPENROUTER_BASE;
+  const res = await doFetch(`${base}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${cfg.openrouterKey}`,
@@ -174,6 +177,17 @@ async function callOllama(
   return { provider: "ollama", model, content: json.message?.content ?? "" };
 }
 
+/** True when a failure looks like "this model no longer exists". */
+export function isRetiredModel(message: string): boolean {
+  return /\b(404|model_not_found|no endpoints|not found|does not exist|retired|deprecated)\b/i.test(message);
+}
+
+/** The free models to try, in order, for a given config. */
+export function openrouterCandidates(cfg: RouterConfig): string[] {
+  if (cfg.openrouterModel) return [cfg.openrouterModel];
+  return [...OPENROUTER_FREE_MODELS];
+}
+
 /**
  * Run a chat completion, falling back to the other provider if the preferred
  * one errors. Returns which provider actually answered.
@@ -185,28 +199,59 @@ export async function routeChat(
 ): Promise<ChatChunk & { fellBack: boolean; note: string }> {
   const pick = selectProvider(cfg, req.model);
   const opts = { temperature: req.temperature, max_tokens: req.max_tokens };
-  const call = pick.provider === "openrouter" ? callOpenRouter : callOllama;
 
-  try {
-    const out = await call(cfg, pick.model, req.messages, opts, doFetch);
-    return { ...out, fellBack: false, note: pick.reason };
-  } catch (primaryErr) {
-    const other: ProviderId = pick.provider === "openrouter" ? "ollama" : "openrouter";
-    // A remote fallback is only possible when a key exists; otherwise surface
-    // the original failure rather than pretending a model answered.
-    if (other === "openrouter" && !cfg.openrouterKey) {
-      throw new Error(
-        `${(primaryErr as Error).message} — and no OpenRouter key is configured to fall back to.`,
-      );
+  // Within OpenRouter, a retired `:free` model should not cost the whole
+  // request — try the next one before giving up on the provider. 9router hit
+  // exactly this with retired Claude models.
+  if (pick.provider === "openrouter") {
+    const candidates = openrouterCandidates(cfg);
+    let lastErr: unknown;
+    for (const model of candidates) {
+      try {
+        const out = await callOpenRouter(cfg, model, req.messages, opts, doFetch);
+        const skipped = model !== pick.model;
+        return {
+          ...out,
+          fellBack: skipped,
+          note: skipped ? `${pick.model} unavailable, used ${model}` : pick.reason,
+        };
+      } catch (e) {
+        lastErr = e;
+        const msg = e instanceof Error ? e.message : String(e);
+        // Only skip past a model that is gone; an auth or rate-limit failure
+        // applies to every model, so stop immediately.
+        if (!isRetiredModel(msg)) break;
+      }
     }
-    const model = defaultModelFor(cfg, other);
-    const fallbackCall = other === "openrouter" ? callOpenRouter : callOllama;
+    const other: ProviderId = "ollama";
     try {
-      const out = await fallbackCall(cfg, model, req.messages, opts, doFetch);
-      return { ...out, fellBack: true, note: `${pick.provider} failed, fell back to ${other}` };
+      const out = await callOllama(cfg, defaultModelFor(cfg, other), req.messages, opts, doFetch);
+      return { ...out, fellBack: true, note: `openrouter failed (${(lastErr as Error)?.message ?? "?"}); fell back to ollama` };
     } catch (fallbackErr) {
       throw new Error(
-        `${pick.provider}: ${(primaryErr as Error).message} | ${other}: ${(fallbackErr as Error).message}`,
+        `openrouter: ${(lastErr as Error)?.message ?? "?"} | ollama: ${(fallbackErr as Error).message}`,
+      );
+    }
+  }
+
+  try {
+    const out = await callOllama(cfg, pick.model, req.messages, opts, doFetch);
+    return { ...out, fellBack: false, note: pick.reason };
+  } catch (primaryErr) {
+    const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    // A remote fallback is only possible when a key exists; otherwise surface
+    // the original failure rather than pretending a model answered.
+    if (!cfg.openrouterKey) {
+      // Name the provider: a bare fetch TypeError ("Unable to connect…") gives
+      // an operator no way to tell Ollama apart from OpenRouter.
+      throw new Error(`ollama: ${msg} — and no OpenRouter key is configured to fall back to.`);
+    }
+    try {
+      const out = await callOpenRouter(cfg, defaultModelFor(cfg, "openrouter"), req.messages, opts, doFetch);
+      return { ...out, fellBack: true, note: `ollama failed, fell back to openrouter` };
+    } catch (fallbackErr) {
+      throw new Error(
+        `ollama: ${msg} | openrouter: ${(fallbackErr as Error).message}`,
       );
     }
   }
