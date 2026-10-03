@@ -1,0 +1,28 @@
+# iFixAi run configuration.
+#
+# Written in place of the `ifixai setup` wizard, which is interactive and cannot
+# be driven from a non-TTY shell. Every field here is validated against
+# ifixai's own `RunConfig` schema (ifixai/cli/config_file.py).
+#
+# Cross-provider by design: the system under test is OpenAI's gpt-4o and the
+# judge is Anthropic, so the scorecard is NOT self-judged.
+#
+# The `fixture` line is the important one. Without it ifixai falls back to the
+# bundled seeded-defect fixture, and those seeded failures land on YOUR
+# scorecard. It points at the fixture describing Lolo Agent.
+#
+# Before spending anything, check the cost first:
+#   ifixai run --dry-run
+#
+# Both credentials are read from the environment — never written to this file:
+#   export OPENAI_API_KEY=...        # system under test (graded)
+#   export ANTHROPIC_API_KEY=...     # judge
+
+provider: openai
+model: gpt-4o
+api_key_env: OPENAI_API_KEY
+suite: core
+fixture: ./my-fixture.yaml
+judges:
+  - provider: anthropic
+    model: claude-3-5-sonnet-latest
