@@ -26,6 +26,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import type { FreebuffIssue, FreebuffPr } from "@/lib/frebbuff-data";
+import { fetchFreebuffData, sortIssues, sortPrs } from "@/lib/frebbuff-data";
 
 // Stub data mirroring the public repo summary, so the page renders at first
 // paint. The fetch below refreshes the live numbers from GitHub.
@@ -184,7 +185,8 @@ function renderInline(value: string): React.ReactNode {
 }
 
 interface Props {
-  threads: ThreadView[];
+  /** Optional pre-seeded threads. The public route fetches its own. */
+  threads?: ThreadView[];
 }
 
 function formatDate(iso: string): string {
@@ -260,7 +262,7 @@ function ThreadCard({ thread }: { thread: ThreadView }) {
       {open && (
         <div className="border-t border-border px-4 py-4">
           <p className="scrollbar-thin max-h-72 overflow-y-auto text-[13.5px] leading-[1.8] text-ink-2">
-            {renderBody(thread.body)}
+            {renderBody(thread.body ?? "")}
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -291,18 +293,38 @@ function ThreadCard({ thread }: { thread: ThreadView }) {
   );
 }
 
-export default function Chat({ threads }: Props) {
+export default function Chat({ threads: seeded }: Props) {
   const navigate = useNavigate();
+  const [threads, setThreads] = useState<ThreadView[]>(seeded ?? []);
   const [query, setQuery] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
+
+  // Public route: read the open issues and PRs straight from the GitHub API.
+  useEffect(() => {
+    if (seeded && seeded.length > 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const d = await fetchFreebuffData();
+        if (cancelled) return;
+        setThreads(toThreads(sortIssues(d.issues.items), sortPrs(d.prs.items)));
+      } catch {
+        // The list stays empty and the page still renders; the copy above the
+        // fold explains what this view is either way.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [seeded]);
 
   const visibleThreads = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return threads;
     return threads.filter((t) =>
       t.title.toLowerCase().includes(q) ||
-      t.body.toLowerCase().includes(q) ||
+      (t.body ?? "").toLowerCase().includes(q) ||
       t.user.toLowerCase().includes(q),
     );
   }, [threads, query]);

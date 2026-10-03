@@ -5,8 +5,6 @@
 // REST API and never touches the freebuff/ source folder, the existing api.ts
 // seam, or any backend command. This route is intentionally unauthenticated.
 
-import { useEffect, useState, useMemo } from "react";
-
 import { Link } from "react-router";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -16,6 +14,7 @@ import {
   Code2,
   FolderOpen,
   GitBranch,
+  GitFork,
   GitPullRequest,
   Package,
   Search,
@@ -61,15 +60,12 @@ function labelClass(name: string): string {
 }
 
 import { useEffect, useState, useMemo } from "react";
-import { fetchFreebuffData } from "@/lib/frebbuff-data";
+import { fetchFreebuffData, sortIssues, sortPrs, FREEbuff } from "@/lib/frebbuff-data";
 
 export default function Web() {
-  const [data, setData] = useState<{
-    repo: FreebuffRepo;
-    rawIssues: FreebuffGithubResponse["items"];
-    rawPrs: FreebuffGithubResponse["items"];
-    files: FreebuffFile[];
-  } | null>(null);
+  const [data, setData] = useState<Awaited<ReturnType<typeof fetchFreebuffData>> | null>(
+    null,
+  );
 
   useEffect(() => {
     void (async () => {
@@ -78,23 +74,14 @@ export default function Web() {
     })();
   }, []);
 
-  const repo = data?.repo;
-  const rawIssues = data?.rawIssues ?? [];
-  const rawPrs = data?.rawPrs ?? [];
+  // Rendered from the static copy until the live fetch lands, so the layout
+  // never shifts under the reader.
+  const repo = data?.repo ?? FREEbuff;
   const files = data?.files ?? [];
   const [query, setQuery] = useState("");
 
-  const issues = useMemo(() => {
-    return rawIssues
-      .filter((i): i is FreebuffGithubResponse["items"][number] => "pull_request" in i === false || i.pull_request === false)
-      .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
-  }, [rawIssues]);
-
-  const prs = useMemo(() => {
-    return rawPrs
-      .filter((p): p is FreebuffGithubResponse["items"][number] => p.pull_request === true)
-      .sort((a, b) => +new Date(a.updated_at) - +new Date(b.updated_at));
-  }, [rawPrs]);
+  const issues = useMemo(() => (data ? sortIssues(data.issues.items) : []), [data]);
+  const prs = useMemo(() => (data ? sortPrs(data.prs.items) : []), [data]);
 
   const filteredIssues = issues.filter((i) =>
     i.title.toLowerCase().includes(query.toLowerCase()),
@@ -169,7 +156,7 @@ export default function Web() {
               <div className="grid grid-cols-2 gap-4 p-6 sm:grid-cols-4">
                 {[
                   { label: "stars", value: repo.stars, sub: "github", icon: Star, color: "text-amber-500" },
-                  { label: "forks", value: repo.forks, sub: "copies", icon: GitRepository, color: "text-[#5a6b7a]" },
+                  { label: "forks", value: repo.forks, sub: "copies", icon: GitFork, color: "text-[#5a6b7a]" },
                   { label: "open issues", value: repo.openIssues, sub: "reported", icon: GitBranch, color: "text-[#c85a50]" },
                   { label: "open prs", value: repo.prs, sub: "in flight", icon: GitPullRequest, color: "text-[#4aa06e]" },
                 ].map((s) => (

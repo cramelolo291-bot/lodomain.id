@@ -8,7 +8,7 @@
 //
 // Public route: no auth, no keys, no backend.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -29,6 +29,7 @@ import {
   Users,
 } from "lucide-react";
 import type { FreebuffIssue, FreebuffPr } from "@/lib/frebbuff-data";
+import { fetchFreebuffData, sortIssues, sortPrs } from "@/lib/frebbuff-data";
 
 // Static counts so the cards render immediately; the fetch below refreshes
 // the live numbers from GitHub.
@@ -208,8 +209,37 @@ function RowCard({
 }
 
 interface Props {
-  issues: FreebuffIssue[];
-  prs: FreebuffPr[];
+  issues?: FreebuffIssue[];
+  prs?: FreebuffPr[];
+}
+
+function toIssueView(i: FreebuffIssue): PanelIssue {
+  return {
+    id: `issue-${i.number}`,
+    number: i.number,
+    title: i.title,
+    user: i.user,
+    createdAt: i.created_at,
+    comments: i.comments,
+    state: i.state,
+    labels: labelsOf(i.labels).map((l) => l.name),
+    html_url: i.html_url,
+  };
+}
+
+function toPrView(p: FreebuffPr): PanelPr {
+  return {
+    id: `pr-${p.number}`,
+    number: p.number,
+    title: p.title,
+    user: p.user,
+    createdAt: p.created_at,
+    mergedAt: p.merged_at,
+    comments: p.comments,
+    state: p.state,
+    labels: labelsOf(p.labels).map((l) => l.name),
+    html_url: p.html_url,
+  };
 }
 
 export default function Panel({ issues, prs }: Props) {
@@ -217,13 +247,32 @@ export default function Panel({ issues, prs }: Props) {
   const [query, setQuery] = useState("");
   const [filterLabel, setFilterLabel] = useState("");
 
-  const [openIssues, setOpenIssues] = useState<PanelIssue[]>([]);
-  const [openPrs, setOpenPrs] = useState<PanelPr[]>([]);
-
   const [loading, setLoading] = useState(true);
 
-  const [allIssues, setAllIssues] = useState<FreebuffIssue[]>(issues);
-  const [allPrs, setAllPrs] = useState<FreebuffPr[]>(prs);
+  const [allIssues, setAllIssues] = useState<PanelIssue[]>(
+    (issues ?? []).map(toIssueView),
+  );
+  const [allPrs, setAllPrs] = useState<PanelPr[]>((prs ?? []).map(toPrView));
+
+  // Public route: pull the open issues and PRs from the GitHub REST API.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const d = await fetchFreebuffData();
+        if (cancelled) return;
+        setAllIssues(sortIssues(d.issues.items).map(toIssueView));
+        setAllPrs(sortPrs(d.prs.items).map(toPrView));
+      } catch {
+        // Keep whatever the initial props gave us; the page still renders.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredIssues = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -232,8 +281,7 @@ export default function Panel({ issues, prs }: Props) {
       const matchesQ =
         !q ||
         i.title.toLowerCase().includes(q) ||
-        i.user.toLowerCase().includes(q) ||
-        (i.body ?? "").toLowerCase().includes(q);
+        i.user.toLowerCase().includes(q);
       const matchesL = !label || i.labels.some((l) => l.toLowerCase().includes(label));
       return matchesQ && matchesL;
     });
@@ -246,8 +294,7 @@ export default function Panel({ issues, prs }: Props) {
       const matchesQ =
         !q ||
         p.title.toLowerCase().includes(q) ||
-        p.user.toLowerCase().includes(q) ||
-        (p.body ?? "").toLowerCase().includes(q);
+        p.user.toLowerCase().includes(q);
       const matchesL = !label || p.labels.some((l) => l.toLowerCase().includes(label));
       return matchesQ && matchesL;
     });
@@ -259,8 +306,8 @@ export default function Panel({ issues, prs }: Props) {
   // Tally labels across every open issue / pr.
   const labelTally = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const i of allIssues) for (const l of i.labels) counts.set(l.name, (counts.get(l.name) ?? 0) + 1);
-    for (const p of allPrs) for (const l of p.labels) counts.set(l.name, (counts.get(l.name) ?? 0) + 1);
+    for (const i of allIssues) for (const l of i.labels) counts.set(l, (counts.get(l) ?? 0) + 1);
+    for (const p of allPrs) for (const l of p.labels) counts.set(l, (counts.get(l) ?? 0) + 1);
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [allIssues, allPrs]);
 

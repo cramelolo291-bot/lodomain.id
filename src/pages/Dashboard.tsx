@@ -28,7 +28,7 @@ import {
   TrendingDown,
   TrendingUp,
   Users,
-  GitRepository,
+  GitFork,
 } from "lucide-react";
 import type { FreebuffGithubResponse } from "@/lib/frebbuff-data";
 
@@ -229,7 +229,7 @@ export default function Dashboard() {
                     label="forks"
                     value={fmt(forks)}
                     sub="copies of the repo"
-                    icon={<GitRepository className="size-4 text-[#5a6b7a]" />}
+                    icon={<GitFork className="size-4 text-[#5a6b7a]" />}
                     accent="ink"
                   />
                   <StatCard
@@ -289,7 +289,7 @@ export default function Dashboard() {
                     name: l.name,
                     value: l.size,
                   })) as Array<{ name: string; value: number; color: string }>)}
-                  valueKey="size"
+                  valueKey="value"
                   valueFormat={(v) => fmt(v) + " kB"}
                 />
                 <p className="mt-3 font-mono text-[11px] text-ink-4">{STATIC.languages.length} languages tracked</p>

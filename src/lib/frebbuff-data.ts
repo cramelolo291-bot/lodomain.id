@@ -255,16 +255,14 @@ export function summarize(issues: FreebuffGithubResponse["items"], prs: Freebuff
   newestPr: FreebuffPr | null;
   totalFiles: number;
 } {
-  const openItem = (arr: Array<FreebuffIssue | FreebuffPr>) =>
-    arr.filter((i) => i.pull_request === false && i.state === "open");
-  const openPr = (arr: Array<FreebuffIssue | FreebuffPr>) =>
-    arr.filter((p) => p.pull_request === true && p.state === "open");
+  const openIssuesSorted = sortIssues(issues);
+  const openPrsSorted = sortPrs(prs);
 
   return {
-    openIssues: openItem(issues).length,
-    openPrs: openPr(prs).length,
-    newestIssue: sortIssues(issues as Array<FreebuffIssue | FreebuffPr>).find((i) => !i.pull_request && i.state === "open") ?? null,
-    newestPr: sortPrs(prs as Array<FreebuffIssue | FreebuffPr>).find((p) => p.pull_request && p.state === "open") ?? null,
+    openIssues: openIssuesSorted.filter((i) => i.state === "open").length,
+    openPrs: openPrsSorted.filter((p) => p.state === "open").length,
+    newestIssue: openIssuesSorted.find((i) => i.state === "open") ?? null,
+    newestPr: openPrsSorted.find((p) => p.state === "open") ?? null,
     totalFiles: 0,
   };
 }
