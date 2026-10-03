@@ -196,9 +196,12 @@ export default function Landing() {
                     Lanjutkan
                     <ArrowRight className="size-4" />
                   </Link>
+                  <Link to="/studio/" className="btn-primary">
+                    Buka Studio
+                    <ArrowRight className="size-4" />
+                  </Link>
                   <Link to="/web/" className="btn-ghost">
                     Lihat repo publik
-                    <ArrowRight className="size-4" />
                   </Link>
                   <a href="#gateway" className="btn-ghost">
                     Cara kerjanya

@@ -14,6 +14,8 @@ const Chat = lazy(() => import("./pages/Chat.tsx"));
 const Web = lazy(() => import("./pages/Web.tsx"));
 const Panel = lazy(() => import("./pages/Panel.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
+const Studio = lazy(() => import("./pages/Studio.tsx"));
+const Projects = lazy(() => import("./pages/Projects.tsx"));
 const Server = lazy(() => import("./pages/Server.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
@@ -53,6 +55,8 @@ function App() {
             <Route path="/chat/:id" element={<Chat />} />
             <Route path="/panel/" element={<Panel />} />
             <Route path="/dashboard/" element={<Dashboard />} />
+            <Route path="/studio/" element={<Studio />} />
+            <Route path="/projects/" element={<Projects />} />
 
             {/* Authenticated product routes, kept as before. */}
             <Route

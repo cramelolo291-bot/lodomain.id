@@ -4,12 +4,14 @@ import { cn } from "@/lib/utils";
 import {
   Activity,
   BarChart3,
+  FolderKanban,
   Globe,
   LogOut,
   MessagesSquare,
   Moon,
   Server,
   Sun,
+  Terminal,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router";
@@ -157,6 +159,8 @@ export function AppShell({
               <NavItem to="/chat/" icon={MessagesSquare} label="Chat" />
               <NavItem to="/panel/" icon={Activity} label="Panel" />
               <NavItem to="/dashboard/" icon={BarChart3} label="Metrics" />
+              <NavItem to="/studio/" icon={Terminal} label="Studio" />
+              <NavItem to="/projects/" icon={FolderKanban} label="Projects" />
               <NavItem to="/server" icon={Server} label="Server" />
             </nav>
           </div>
