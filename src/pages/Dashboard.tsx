@@ -24,8 +24,6 @@ import {
   GitBranch,
   GitBranchPlus,
   Heart,
-  Layout,
-  Repositories,
   Star,
   TrendingDown,
   TrendingUp,

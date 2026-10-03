@@ -47,12 +47,12 @@ function App() {
             <Route path="/auth" element={<AuthPage redirectAfterAuth="/web" />} />
 
             {/* Public routes — read-only freebuff data, no auth, no keys. */}
-            <Route path="/web" element={<Web />} />
+            <Route path="/web/" element={<Web />} />
             <Route path="/web/:id" element={<Web />} />
-            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat/" element={<Chat />} />
             <Route path="/chat/:id" element={<Chat />} />
-            <Route path="/panel" element={<Panel />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/panel/" element={<Panel />} />
+            <Route path="/dashboard/" element={<Dashboard />} />
 
             {/* Authenticated product routes, kept as before. */}
             <Route
@@ -83,7 +83,7 @@ function App() {
               path="/web/:id"
               element={
                 <RequireAuth>
-                  <Chat />
+                  <Web />
                 </RequireAuth>
               }
             />
