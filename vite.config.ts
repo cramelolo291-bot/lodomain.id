@@ -6,6 +6,7 @@ import { defineConfig } from "vite";
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: process.env.GITHUB_PAGES === "true" ? "/lolo-ai-agent/" : "/",
   plugins: [react(), vlyPlugin(), tailwindcss()],
   resolve: {
     alias: {
