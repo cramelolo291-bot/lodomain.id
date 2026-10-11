@@ -24,6 +24,7 @@ import { panel } from "./routes/panel";
 import { turnStream } from "./routes/turn-stream";
 import { openai } from "./routes/openai-compat";
 import { llmRouter } from "./routes/llm-router";
+import { infrastructure } from "./routes/infrastructure";
 
 export function createApp() {
   const app = new Hono();
@@ -81,6 +82,7 @@ export function createApp() {
   app.route("/api", dataSpace);
   app.route("/api", build);
   app.route("/api", panel);
+  app.route("/api", infrastructure);
   // Mounted after `routes` so the shared body limit applies, and before the
   // OpenAI router whose prefix is `/`.
   app.route("/api", turnStream);

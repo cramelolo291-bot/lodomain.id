@@ -17,6 +17,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const Studio = lazy(() => import("./pages/Studio.tsx"));
 const Projects = lazy(() => import("./pages/Projects.tsx"));
 const Server = lazy(() => import("./pages/Server.tsx"));
+const Infrastructure = lazy(() => import("./pages/Infrastructure.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 function RouteLoading() {
@@ -96,6 +97,14 @@ function App() {
               element={
                 <RequireAuth>
                   <Server />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/infrastructure"
+              element={
+                <RequireAuth>
+                  <Infrastructure />
                 </RequireAuth>
               }
             />

@@ -6,6 +6,7 @@ import {
   BarChart3,
   FolderKanban,
   Globe,
+  ShieldCheck,
   LogOut,
   MessagesSquare,
   Moon,
@@ -162,6 +163,7 @@ export function AppShell({
               <NavItem to="/studio/" icon={Terminal} label="Studio" />
               <NavItem to="/projects/" icon={FolderKanban} label="Projects" />
               <NavItem to="/server" icon={Server} label="Server" />
+              <NavItem to="/infrastructure" icon={ShieldCheck} label="Infrastructure" />
             </nav>
           </div>
 
