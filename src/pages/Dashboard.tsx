@@ -105,11 +105,9 @@ function StatCard({
 
 function BarChart({
   items,
-  valueKey,
   valueFormat,
 }: {
   items: Array<{ name: string; value: number; color: string }>;
-  valueKey: keyof typeof items[0];
   valueFormat: (v: number) => string;
 }) {
   const max = Math.max(...items.map((i) => i.value));
@@ -296,7 +294,6 @@ export default function Dashboard() {
                     value: l.value,
                     color: l.color,
                   })) as Array<{ name: string; value: number; color: string }>)}
-                  valueKey="value"
                   valueFormat={(v) => v + "%"}
                 />
                 <p className="mt-3 font-mono text-[11px] text-ink-4">
