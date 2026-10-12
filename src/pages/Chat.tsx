@@ -3,9 +3,8 @@
 //
 // This is a read-only discussion UI; it does not write to the upstream repository.
 // Each issue or PR is a thread you can browse; the list is filtered by the
-// search box, and clicking one opens the thread detail. The page is read-only and
-// uses the live GitHub API; it does not write to the backend or repo source
-// folder access, and no dependency on the existing api.ts seam.
+// search box, and clicking one opens the thread detail. The page uses the live
+// GitHub API and does not write to the backend or upstream repository.
 //
 // All data is pulled from the GitHub REST API.
 
