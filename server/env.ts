@@ -55,6 +55,8 @@ export const env = {
 
   /** Comma-separated email allowlist for production admin access. */
   ADMIN_EMAILS: optional("ADMIN_EMAILS", ""),
+  /** Comma-separated exact email allowlist for production sign-in. */
+  ALLOWED_EMAILS: optional("ALLOWED_EMAILS", ""),
   SESSION_COOKIE: optional("SESSION_COOKIE", "lolo_session"),
   SESSION_TTL_HOURS: int("SESSION_TTL_HOURS", 30 * 24),
   MAGIC_LINK_TTL_MINUTES: int("MAGIC_LINK_TTL_MINUTES", 15),
