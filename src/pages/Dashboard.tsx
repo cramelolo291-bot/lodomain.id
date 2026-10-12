@@ -160,7 +160,7 @@ export default function Dashboard() {
     // This goes through the shared fetcher rather than its own requests so all
     // four public pages share one in-flight batch and one sessionStorage entry.
     // Rolling its own fetches doubled the anonymous rate-limit burn for no
-    // benefit, and bypassed the published-number fallback on throttle.
+    // benefit, and exhausted the anonymous rate limit sooner.
     void (async () => {
       try {
         const d = await fetchFreebuffData();
