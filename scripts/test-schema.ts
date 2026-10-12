@@ -143,7 +143,7 @@ const serverSource = (
     // Every router the app mounts. Missing one here makes the parity check
     // below quietly blind to that whole surface, so keep it in step with the
     // `app.route` calls in `server/app.ts`.
-    ["auth", "conversations", "data-space", "panel", "build", "turn-stream"].map((f) =>
+    ["auth", "conversations", "data-space", "panel", "build", "turn-stream", "modules"].map((f) =>
       readFile(`server/routes/${f}.ts`, "utf8"),
     ),
   )
@@ -168,6 +168,8 @@ const known = [
   "api/usage",
   "api/guardrails",
   "api/keys",
+  "api/modules",
+  "api/modules/:key",
   "api/turn",
 ];
 
