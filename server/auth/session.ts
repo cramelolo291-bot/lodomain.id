@@ -11,7 +11,7 @@ import { db, type Db } from "../db/client";
 import { sessions, users } from "../db/schema";
 import { env, isProd } from "../env";
 import { generateToken, hashToken } from "./tokens";
-import { isAllowedLoginEmail } from "./magic-link";
+import { isAllowedLoginEmail, isConfiguredAdminEmail } from "./magic-link";
 
 export type Session = {
   userId: string;
@@ -120,6 +120,14 @@ export async function sessionFromCookieHeader(
     // Remove the session so a later allowlist change cannot revive it.
     await db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)));
     return null;
+  }
+  if (env.NODE_ENV === "production" && row.role === "admin" && !isConfiguredAdminEmail(row.email)) {
+    const [demoted] = await db
+      .update(users)
+      .set({ role: "user", updatedAt: new Date() })
+      .where(eq(users.id, row.userId))
+      .returning({ role: users.role });
+    row.role = demoted?.role ?? "user";
   }
 
   return {
