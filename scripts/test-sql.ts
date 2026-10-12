@@ -355,7 +355,7 @@ await expectFail(
 );
 
 await db.exec(`insert into project_rows (table_id, data) values ('${tid}', '{"id":3,"name":"Lampu"}')`);
-const { rows: upserted } = await db.query<{ name: string }>(`
+await db.query<{ name: string }>(`
   insert into project_rows (table_id, data) values ('${tid}', '{"id":1,"name":"Kursi Baru"}')
   on conflict do nothing
   returning data->>'name' as name
