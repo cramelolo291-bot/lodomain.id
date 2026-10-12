@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Link } from "react-router";
 import { ArrowLeft, ArrowUpRight, CheckCircle2, CircleDashed, ExternalLink, ShieldCheck, Workflow } from "lucide-react";
@@ -14,6 +15,35 @@ const modules: Record<string, { name: string; category: string; description: str
 
 export default function ModulePage({ module }: { module: string }) {
   const item = modules[module];
+  const [endpointUrl, setEndpointUrl] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [status, setStatus] = useState("not_configured");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!item) { setLoading(false); return; }
+    fetch("/api/modules", { credentials: "include" })
+      .then(async (response) => {
+        if (response.status === 401) throw new Error("Login diperlukan untuk mengelola koneksi.");
+        if (!response.ok) throw new Error("Tidak dapat memuat konfigurasi modul.");
+        return response.json();
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        const row = payload.items?.find((entry: { key: string }) => entry.key === module);
+        setEndpointUrl(row?.endpointUrl ?? "");
+        setEnabled(Boolean(row?.enabled));
+        setStatus(row?.status ?? "not_configured");
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setNotice(error instanceof Error ? error.message : "Gagal memuat modul.");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [module, item]);
   if (!item) return <AppShell><div className="mx-auto max-w-3xl px-5 py-16"><h1 className="display text-3xl text-ink-1">Module not found</h1><Link className="btn-ghost mt-5 inline-flex" to="/integrations">Back to workspace</Link></div></AppShell>;
 
   return (
@@ -24,7 +54,7 @@ export default function ModulePage({ module }: { module: string }) {
           <p className="eyebrow mt-8">LOLODOMAIN.ID / {item.category}</p>
           <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-[680px]"><h1 className="display text-[clamp(34px,5vw,52px)] leading-tight text-ink-1">{item.name}</h1><p className="mt-4 text-[14px] leading-7 text-ink-3">{item.description}</p></div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-[10px] text-amber-600"><CircleDashed className="size-3.5" /> ADAPTER PENDING</span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-[10px] text-amber-600"><CircleDashed className="size-3.5" /> {status.replaceAll("_", " ").toUpperCase()}</span>
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
@@ -35,10 +65,39 @@ export default function ModulePage({ module }: { module: string }) {
             </section>
             <div className="space-y-4">
               <section className="glass rounded-2xl p-5"><p className="eyebrow">UPSTREAM PROJECT</p><h2 className="mt-2 text-[17px] font-medium text-ink-1">{item.source}</h2><p className="mt-2 text-[12px] leading-6 text-ink-3">Sumber terbuka yang akan menjadi adapter terpisah. Integrasi bukan berarti menyalin seluruh repo ke frontend utama.</p><a href={item.repo} target="_blank" rel="noreferrer" className="btn-ghost mt-4 inline-flex">View repository <ExternalLink className="size-3.5" /></a></section>
+              <section className="glass rounded-2xl p-5">
+                <p className="eyebrow">CONNECTION CONFIG</p>
+                <h2 className="mt-2 text-[15px] font-medium text-ink-1">Konfigurasi layanan</h2>
+                <p className="mt-2 text-[12px] leading-6 text-ink-3">Simpan URL endpoint untuk modul ini. Konfigurasi tidak menjalankan service dan tidak membuktikan koneksi sehat.</p>
+                <form className="mt-4 space-y-3" onSubmit={async (event) => {
+                  event.preventDefault();
+                  setSaving(true); setNotice("");
+                  try {
+                    const response = await fetch("/api/modules/" + module, {
+                      method: "PUT", credentials: "include",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ endpointUrl: endpointUrl.trim() || null, enabled }),
+                    });
+                    const payload = await response.json();
+                    if (!response.ok) throw new Error(payload.error?.message ?? "Gagal menyimpan konfigurasi.");
+                    setStatus(payload.status);
+                    setNotice("Konfigurasi tersimpan. Runtime tetap nonaktif sampai adapter nyata dipasang.");
+                  } catch (error) {
+                    setNotice(error instanceof Error ? error.message : "Gagal menyimpan konfigurasi.");
+                  } finally { setSaving(false); }
+                }}>
+                  <label className="block text-[11px] text-ink-3" htmlFor="module-endpoint">Endpoint URL (HTTPS)</label>
+                  <input id="module-endpoint" type="url" value={endpointUrl} onChange={(event) => setEndpointUrl(event.target.value)} placeholder="https://service.example.com" className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-[12px] text-ink-1 outline-none focus:border-ember" />
+                  <label className="flex items-center gap-2 text-[12px] text-ink-2"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Aktifkan konfigurasi</label>
+                  <button type="submit" disabled={saving || loading} className="btn-ghost inline-flex disabled:opacity-50">{saving ? "Menyimpan…" : "Simpan konfigurasi"}</button>
+                </form>
+                {notice && <p role="status" className="mt-3 text-[11px] leading-5 text-ink-3">{notice}</p>}
+                {loading && <p className="mt-2 text-[11px] text-ink-4">Memuat status dari server…</p>}
+              </section>
               <section className="rounded-2xl border border-line bg-surface-2/60 p-5"><div className="flex items-center gap-2"><ShieldCheck className="size-4 text-ember" /><h2 className="text-[13px] font-medium text-ink-1">Isolation & security</h2></div><p className="mt-2 text-[12px] leading-6 text-ink-3">{item.safety}</p></section>
             </div>
           </div>
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line px-4 py-3"><span className="text-[11px] text-ink-4">Status: UI terpisah · runtime belum diklaim aktif</span><Link to="/server" className="inline-flex items-center gap-1.5 text-[12px] text-ink-2 hover:text-ember">Open server console <ArrowUpRight className="size-3.5" /></Link></div>
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line px-4 py-3"><span className="text-[11px] text-ink-4">Status: konfigurasi server-side · runtime belum diaktifkan</span><Link to="/server" className="inline-flex items-center gap-1.5 text-[12px] text-ink-2 hover:text-ember">Open server console <ArrowUpRight className="size-3.5" /></Link></div>
         </div>
       </div>
     </AppShell>
