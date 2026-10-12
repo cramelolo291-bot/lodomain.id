@@ -188,8 +188,9 @@ await test("every declared page route has a client-side route definition", async
     "/infrastructure",
   ];
   for (const route of expectedRoutes) {
-    const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, "\\await test("an unknown path also returns the shell", async () => {");
-    check(`route ${route} is registered`, new RegExp(`path=["']${escaped}["']`).test(source));
+    const doubleQuoted = `path="${route}"`;
+    const singleQuoted = `path='${route}'`;
+    check(`route ${route} is registered`, source.includes(doubleQuoted) || source.includes(singleQuoted));
   }
 });
 
