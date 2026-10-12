@@ -203,7 +203,7 @@ let cached: FreebuffPayload | null = null;
  * visitor who reloads or bounces between the four pages still sees the same
  * data, and costs GitHub nothing.
  */
-const CACHE_KEY = `${REPO_SLUG}:public-data:v1`;
+const CACHE_KEY = `${REPO_SLUG}:public-data:v2`;
 const CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 
 function readPersisted(): FreebuffPayload | null {
