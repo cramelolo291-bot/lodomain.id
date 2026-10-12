@@ -42,3 +42,12 @@ The module registry, individual routes, source links, UI and safety notes are pr
 - Use the existing theme tokens and glass surfaces; avoid stacking blur layers or decorative cards.
 - Keep motion short and subtle, respect reduced-motion preferences, and preserve keyboard focus and contrast.
 - Keep mobile navigation reachable without horizontal page overflow. Use responsive grids instead of compressing all tools into one dense panel.
+
+## Access-control and execution boundaries
+
+- /api/modules requires a valid user session and returns only that user's saved metadata.
+- /llm/v1/* requires a valid session because it uses server-owned provider configuration and quota.
+- /v1/* is the external SDK surface and requires a valid Lolo API key.
+- Infrastructure controls and the server operations panel are admin-only. Production admin accounts must be listed in ADMIN_EMAILS; production signup never grants admin to the first visitor.
+- Production builds and live dev servers are deliberately blocked until an isolated build worker is configured. The current runner can execute project-controlled lifecycle scripts and is not a security sandbox.
+- CI validates code only; it does not publish the site or deploy production.
