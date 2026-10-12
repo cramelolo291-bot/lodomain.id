@@ -83,9 +83,11 @@ export function createApp() {
   app.route("/api", routes);
   app.route("/api", dataSpace);
   app.route("/api", build);
-  app.route("/api", infrastructure);
+  // Routers with router-wide middleware must be mounted last, otherwise Hono's
+  // merged route table can apply their wildcard middleware to later routers.
   app.route("/api", modules);
   app.route("/api", panel);
+  app.route("/api", infrastructure);
   // Mounted after `routes` so the shared body limit applies, and before the
   // OpenAI router whose prefix is `/`.
   app.route("/api", turnStream);
