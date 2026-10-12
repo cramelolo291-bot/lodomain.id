@@ -157,6 +157,9 @@ export async function consumeMagicLink(token: string): Promise<Verified> {
   if (!claim) {
     throw new LinkError("Link sudah dipakai atau kedaluwarsa", 410);
   }
+  if (!isAllowedLoginEmail(claim.email)) {
+    throw new LinkError("Akun ini tidak diizinkan masuk ke deployment ini", 403);
+  }
 
   const existing = await db.select().from(users).where(eq(users.email, claim.email)).limit(1);
   const found = existing[0];
