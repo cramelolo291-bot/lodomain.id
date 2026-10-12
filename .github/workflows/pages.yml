@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 # Verification only. This workflow must never publish the application publicly.
+# A failing check blocks confidence in release; it must not be bypassed.
 permissions:
   contents: read
 
