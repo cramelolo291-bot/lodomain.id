@@ -11,3 +11,6 @@ dist
 *.sql.gz
 dump.sql
 backups/
+.env.keys
+.env.keys.*
+.env.*.enc
