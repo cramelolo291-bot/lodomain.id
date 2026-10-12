@@ -28,20 +28,8 @@ import {
   Star,
   Users,
 } from "lucide-react";
-import type { FreebuffIssue, FreebuffPr } from "@/lib/frebbuff-data";
+import type { FreebuffIssue, FreebuffPr, FreebuffRepo } from "@/lib/frebbuff-data";
 import { fetchFreebuffData, sortIssues, sortPrs, mergedAt } from "@/lib/frebbuff-data";
-
-// Static counts so the cards render immediately; the fetch below refreshes
-// the live numbers from GitHub.
-const STATIC_COUNTS = {
-  openIssues: 310,
-  openPrs: 113,
-  totalIssues: 310,
-  totalPrs: 113,
-  stars: 13100,
-  forks: 1399,
-  contributors: 128,
-};
 
 const LABEL_COLORS: Record<string, string> = {
   bug: "bg-[#c85a50] text-white",
@@ -248,6 +236,8 @@ export default function Panel({ issues, prs }: Props) {
   const [filterLabel, setFilterLabel] = useState("");
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [repoStats, setRepoStats] = useState<FreebuffRepo | null>(null);
 
   const [allIssues, setAllIssues] = useState<PanelIssue[]>(
     (issues ?? []).map(toIssueView),
@@ -263,8 +253,11 @@ export default function Panel({ issues, prs }: Props) {
         if (cancelled) return;
         setAllIssues(sortIssues(d.issues.items).map(toIssueView));
         setAllPrs(sortPrs(d.prs.items).map(toPrView));
-      } catch {
-        // Keep whatever the initial props gave us; the page still renders.
+        setRepoStats(d.repo);
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : "Live GitHub data is unavailable.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -325,6 +318,31 @@ export default function Panel({ issues, prs }: Props) {
     { key: "prs" as const, label: "prs" },
   ] as const;
 
+  if (loading) {
+    return (
+      <AppShell>
+        <div className="flex min-h-[50vh] items-center justify-center p-6">
+          <p className="font-mono text-xs text-ink-4">Loading live GitHub data…</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-xl p-6 pt-16">
+          <div className="panel p-6">
+            <p className="font-mono text-xs uppercase tracking-widest text-ember">Live data unavailable</p>
+            <h1 className="mt-3 text-xl font-semibold text-ink-1">GitHub did not return current data</h1>
+            <p className="mt-2 text-sm text-ink-3">{loadError}</p>
+            <button className="btn-primary mt-5" onClick={() => window.location.reload()}>Retry live request</button>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="scrollbar-thin h-full overflow-y-auto">
@@ -367,7 +385,7 @@ export default function Panel({ issues, prs }: Props) {
               sub={`of ${allIssues.length} total threads`}
               tone="neutral"
             >
-              <p className="text-right font-mono text-[11px] text-ink-4">{STATIC_COUNTS.contributors} contributors</p>
+              <p className="text-right font-mono text-[11px] text-ink-4">{contributors.length} authors in loaded threads</p>
             </PanelCard>
 
             <PanelCard
@@ -377,7 +395,7 @@ export default function Panel({ issues, prs }: Props) {
               sub={`of ${allPrs.length} total threads`}
               tone="ember"
             >
-              <p className="text-right font-mono text-[11px] text-ink-4">{STATIC_COUNTS.stars.toLocaleString()} stars</p>
+              <p className="text-right font-mono text-[11px] text-ink-4">{repoStats ? `${repoStats.stars.toLocaleString()} stars` : "—"}</p>
             </PanelCard>
 
             <PanelCard
@@ -404,7 +422,7 @@ export default function Panel({ issues, prs }: Props) {
               title="top contributors"
               icon={<Users className="size-4.5 text-[#5a6b7a]" />}
               value={contributors[0]?.[1] ?? 0}
-              sub={`${STATIC_COUNTS.contributors} on the board`}
+              sub={`${contributors.length} authors in loaded threads`}
               tone="neutral"
             >
               <div className="flex flex-wrap gap-2">
