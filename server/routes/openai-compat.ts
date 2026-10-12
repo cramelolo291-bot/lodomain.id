@@ -73,14 +73,14 @@ function authed<Env extends { Variables: { keyUserId: string } }>(
   return async (c: import("hono").Context<Env>) => {
     const userId = await authorise(c.req.header("authorization"));
     if (!userId) {
-      return c.json(error("Invalid or missing API key", "invalid_request_error", 401), 401);
+      return c.json(error("Invalid or missing API key", "invalid_request_error"), 401);
     }
     c.set("keyUserId", userId);
     return handler(c);
   };
 }
 
-function error(message: string, type: string, status: 400 | 401 | 404 | 429 | 502 = 400) {
+function error(message: string, type: string) {
   return { error: { message, type, param: null, code: null } };
 }
 
@@ -117,7 +117,6 @@ openai.post("/v1/chat/completions", authed(async (c) => {
       error(
         parsed.error.issues[0]?.message ?? "Invalid request body",
         "invalid_request_error",
-        400,
       ),
       400,
     );
@@ -169,7 +168,7 @@ openai.post("/v1/chat/completions", authed(async (c) => {
       });
     } catch (e) {
       return c.json(
-        error(e instanceof Error ? e.message : String(e), "upstream_error", 502),
+        error(e instanceof Error ? e.message : String(e), "upstream_error"),
         502,
       );
     }
