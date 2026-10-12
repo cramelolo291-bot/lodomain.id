@@ -27,23 +27,7 @@ import {
   Users,
   GitFork,
 } from "lucide-react";
-import { fetchFreebuffData, FREEbuff, type FreebuffFile, type FreebuffRepo } from "@/lib/frebbuff-data";
-
-// Static published metrics, used so the page renders at first paint. The
-// fetch below refreshes the counts from the live GitHub API.
-//
-// `languages` is deliberately absent: the real per-language mix is computed
-// from the fetched file tree below rather than hardcoded, so it always matches
-// the repo instead of going stale.
-const STATIC = {
-  stars: FREEbuff.stars,
-  forks: FREEbuff.forks,
-  openIssues: FREEbuff.openIssues,
-  openPrs: FREEbuff.prs,
-  totalStars: FREEbuff.stars,
-  totalForks: FREEbuff.forks,
-  contributors: 87,
-};
+import { fetchFreebuffData, type FreebuffFile, type FreebuffRepo } from "@/lib/frebbuff-data";
 
 /** Display colour per file extension. */
 const LANG_COLORS: Record<string, string> = {
@@ -152,12 +136,13 @@ function BarChart({
 }
 
 export default function Dashboard() {
-  const [stars, setStars] = useState(STATIC.stars);
-  const [forks, setForks] = useState(STATIC.forks);
-  const [openIssues, setOpenIssues] = useState(STATIC.openIssues);
-  const [openPrs, setOpenPrs] = useState(STATIC.openPrs);
+  const [stars, setStars] = useState<number | null>(null);
+  const [forks, setForks] = useState<number | null>(null);
+  const [openIssues, setOpenIssues] = useState<number | null>(null);
+  const [openPrs, setOpenPrs] = useState<number | null>(null);
   const [files, setFiles] = useState<FreebuffFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const cancelledRef = useRef(false);
 
   useEffect(() => {
@@ -177,16 +162,22 @@ export default function Dashboard() {
     // Rolling its own fetches doubled the anonymous rate-limit burn for no
     // benefit, and bypassed the published-number fallback on throttle.
     void (async () => {
-      const d = await fetchFreebuffData();
-      const repo: FreebuffRepo = d.repo;
-      if (!cancelledRef.current) {
+      try {
+        const d = await fetchFreebuffData();
+        const repo: FreebuffRepo = d.repo;
+        if (cancelledRef.current) return;
         setStars(repo.stars);
         setForks(repo.forks);
         setOpenIssues(repo.openIssues);
         setOpenPrs(repo.prs);
         setFiles(d.files);
+      } catch (error) {
+        if (!cancelledRef.current) {
+          setLoadError(error instanceof Error ? error.message : "Live GitHub data is unavailable.");
+        }
+      } finally {
+        if (!cancelledRef.current) setLoading(false);
       }
-      setLoading(false);
     })();
   }, []);
 
@@ -227,6 +218,13 @@ export default function Dashboard() {
           <div className="flex min-h-[280px] items-center justify-center">
             <span className="font-mono text-[12px] text-ink-4 animate-pulse">loading metrics…</span>
           </div>
+        ) : loadError ? (
+          <div className="panel mx-auto max-w-xl p-6">
+            <p className="font-mono text-xs uppercase tracking-widest text-ember">Live data unavailable</p>
+            <h2 className="mt-3 text-xl font-semibold text-ink-1">GitHub did not return current data</h2>
+            <p className="mt-2 text-sm text-ink-3">{loadError}</p>
+            <button className="btn-primary mt-5" onClick={() => window.location.reload()}>Retry live request</button>
+          </div>
         ) : (
           <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
             {/* Left: primary metrics */}
@@ -235,28 +233,28 @@ export default function Dashboard() {
                 <div className="grid grid-cols-2 gap-4 p-6 sm:grid-cols-4">
                   <StatCard
                     label="stars"
-                    value={fmt(stars)}
+                    value={fmt(stars ?? 0)}
                     sub="on github"
                     icon={<Star className="size-4 text-amber-500" />}
                     accent="amber"
                   />
                   <StatCard
                     label="forks"
-                    value={fmt(forks)}
+                    value={fmt(forks ?? 0)}
                     sub="copies of the repo"
                     icon={<GitFork className="size-4 text-[#5a6b7a]" />}
                     accent="ink"
                   />
                   <StatCard
                     label="open issues"
-                    value={String(openIssues)}
+                    value={String(openIssues ?? 0)}
                     sub="still reported"
                     icon={<GitBranch className="size-4 text-[#9db4a8]" />}
                     accent="teal"
                   />
                   <StatCard
                     label="open prs"
-                    value={String(openPrs)}
+                    value={String(openPrs ?? 0)}
                     sub="drafts in flight"
                     icon={<GitBranchPlus className="size-4 text-ember" />}
                     accent="ember"
@@ -274,7 +272,7 @@ export default function Dashboard() {
                   <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-3">
                     <div className="h-full rounded-full bg-amber-500" />
                   </div>
-                  <p className="mt-3 font-mono text-[11px] text-ink-4">total stars {fmt(STATIC.totalStars)}</p>
+                  <p className="mt-3 font-mono text-[11px] text-ink-4">total stars {fmt(stars ?? 0)}</p>
                 </div>
 
                 <div className="panel p-6">
@@ -282,7 +280,7 @@ export default function Dashboard() {
                     <Users className="size-4 text-[#5a6b7a]" />
                     community
                   </h2>
-                  <p className="mt-2 font-mono text-[12px] text-ink-4">{STATIC.contributors} contributors</p>
+                  <p className="mt-2 font-mono text-[12px] text-ink-4">{fmt(totalFiles)} files indexed</p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {languages.slice(0, 4).map((l) => (
                       <span key={l.name} className="font-mono text-[10px] text-ink-4">{l.name}</span>
@@ -352,10 +350,10 @@ export default function Dashboard() {
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {[
-                    ["open issues", "310"],
-                    ["open prs", "113"],
-                    ["stars", "13,100"],
-                    ["forks", "1,399"],
+                    ["open issues", fmt(openIssues ?? 0)],
+                    ["open prs", fmt(openPrs ?? 0)],
+                    ["stars", fmt(stars ?? 0)],
+                    ["forks", fmt(forks ?? 0)],
                   ].map(([label, value]) => (
                     <span
                       key={label}
