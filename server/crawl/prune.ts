@@ -11,7 +11,7 @@
 // UI chrome) fills context windows with repetition, and for a multi-user
 // server the cost is paid by every account, not just the crawler's user.
 
-import { parse, Node, isHeadTag, isLayoutTag, matches, textOf } from "./dom";
+import { isHeadTag, textOf, type Node } from "./dom";
 
 // Elements that exist to structure a page, not to say something. Removed
 // wholesale — a page without a footer is a page that lost its soul, and that
@@ -115,12 +115,11 @@ export function pruneByLinkDensity(node: Node, cap = 0.55, minLength = 40): void
     if (child.tag === "text" && child.text.trim().length === 0) continue;
 
     if (child.tag === "p" || child.tag === "div" || child.tag === "li" || child.tag === "td" || child.tag === "th") {
-      const raw = textOf(child);
-      const links = (raw.match(/<a[^>]*>/g) ?? []).length;
-      const visible = raw.replace(/<[^>]+>/g, "").trim();
-      if (markedNodes.has(child)) continue;
-      if (links / Math.max(1, visible.length) > cap && visible.length >= minLength) {
-        removeNode(child);
+      const visibleLength = textOf(child).trim().length;
+      const linkLength = linkTextLength(child);
+      if (linkLength / Math.max(1, visibleLength) > cap && visibleLength >= minLength) {
+        // The parent is rebuilding its children array, so skipping this child
+        // removes it without a second tree traversal.
         continue;
       }
     }
@@ -131,22 +130,9 @@ export function pruneByLinkDensity(node: Node, cap = 0.55, minLength = 40): void
   }
 }
 
-// ── Mutation helpers ─────────────────────────────────────────────────────────
-
-/** Remove a node from its parent. Callers own the tree, so no safety net. */
-function removeNode(node: Node): void {
-  const parent = findParent(node);
-  if (!parent) return;
-  parent.children = parent.children.filter((c) => c !== node);
+/** Count visible characters that belong to links, including nested elements. */
+function linkTextLength(node: Node, insideLink = false): number {
+  if (node.tag === "text") return insideLink ? node.text.length : 0;
+  const inLink = insideLink || node.tag === "a";
+  return node.children.reduce((sum, child) => sum + linkTextLength(child, inLink), 0);
 }
-
-/** Walk up the tree to find the node's parent. */
-function findParent(node: Node): Node | null {
-  // This would need a reference to the root. We implement it as a fresh
-  // traversal whenever a prune step decides to cut a node — the trees are
-  // small enough that a second scan is cheaper than carrying a parent pointer.
-  throw new Error("findParent is not implemented");
-}
-
-/** Mark this node so the link-density filter does not try to cut it twice. */
-const markedNodes = new WeakSet<Node>();
