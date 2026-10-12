@@ -82,13 +82,16 @@ modules.put("/modules/:key", async (c) => {
   }
 
   const item = catalog.find((entry) => entry.key === parsedKey.data)!;
-  const existing = await db.select({ id: moduleConnections.id, status: moduleConnections.status })
+  const existing = await db.select({ id: moduleConnections.id, status: moduleConnections.status, endpointUrl: moduleConnections.endpointUrl })
     .from(moduleConnections)
     .where(and(eq(moduleConnections.ownerId, userId), eq(moduleConnections.moduleKey, item.key)))
     .limit(1);
 
+  const effectiveEndpointUrl = endpointUrl === undefined
+    ? existing[0]?.endpointUrl ?? null
+    : endpointUrl;
   const nextStatus = input.enabled === false
-    ? "disabled"
+    ? effectiveEndpointUrl ? "disabled" : "not_configured"
     : input.enabled === true || endpointUrl !== undefined
       ? "pending"
       : existing[0]?.status ?? "not_configured";
