@@ -24,9 +24,10 @@ It ships two ways to talk to it:
 | Auth | Resend magic link | no password to leak, no password to reset |
 | Mail | Resend, optional | without a key, magic links print to the log |
 
-There is no Convex here, and there is no third-party database. The only
-outbound calls the server ever makes are to Ollama (localhost) and, if you
-configure it, to Resend to send your login email.
+There is no Convex here. The database is PostgreSQL. Outbound calls can go to
+Ollama, to OpenRouter when an API key is configured, and to Resend when email
+delivery is configured. Do not assume requests stay on-device when a remote
+provider key is enabled.
 
 ## Layout
 
@@ -42,7 +43,7 @@ server/              the API — Hono
   auth/              tokens, sessions, magic links
   ollama/            client, model pool, catalog
   pipeline/          run-turn, prompts, guardrails, data space
-  routes/            auth, conversations, data-space, panel, turn-stream, openai-compat
+  routes/            auth, conversations, data-space, panel, turn-stream, openai-compat, modules, infrastructure
   http/              rate limiting, validation, observability
 scripts/             the test suites
 docs/ENVIRONMENT.md  every variable, and what breaks when it is wrong
@@ -73,25 +74,27 @@ of mailed, so you can sign in end to end before touching any third party.
 Full variable reference, Ollama sizing by RAM, and troubleshooting:
 **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**.
 
-### Mock mode is not the agent
+### Real backend by default; mock mode is explicitly opt-in
 
-By default the frontend runs against an in-browser mock. It is a UI demo: it
-screens prompts, animates a spinner, and produces file changes from a fixed
-set of templates. **No model is called, no database is touched, and nothing is
-written to disk.** Every answer it gives — including the file tree it lists —
-is invented.
+The frontend uses the real HTTP backend by default. It does not silently fall
+back to generated replies when the API is unavailable: requests should fail
+visibly rather than inventing a successful response.
 
-The mock is the default so the interface is explorable with nothing installed.
-It is not a quieter version of the real thing; it is a different program.
+For local UI-only exploration, you can explicitly opt into the in-browser mock
+in development by setting `VITE_API_MODE=mock`. Mock mode uses seeded browser
+state and fixed templates; **it does not call a model, write to PostgreSQL, or
+run the real build toolchain**. Production builds ignore this mock opt-in.
 
-To get the real agent, one line in `.env`:
+For real agent behavior, configure the backend and set these variables in the
+Vite environment:
 
 ```
 VITE_API_MODE=http
 VITE_API_URL=http://localhost:8787
 ```
 
-Then restart Vite. `VITE_API_MODE=http` is the only line that matters —
+Then restart Vite. HTTP mode is the default — these settings are only needed
+when overriding that default or changing the API host.
 `VITE_API_URL` only needs changing if the server is not on :8787.
 
 What changes when you flip it:
@@ -144,7 +147,7 @@ liveness on `/api/health`.
 | `bun run typecheck` | `tsc -b --noEmit` |
 | `bun test` | all ten suites, no framework |
 
-`bun test` is a set of sequential scripts rather than a test runner, so a
+`bun run test` is a set of sequential scripts rather than a test runner, so a
 failure names the exact step. `test:api` and `test:harden` stand up PGlite over
 a real TCP socket, so the actual pool, the actual Drizzle queries and the actual
 Hono routes are exercised — not stubs of them.
