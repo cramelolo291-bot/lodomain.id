@@ -309,6 +309,11 @@ export function llmRouter(configFromEnv: () => RouterConfig) {
       }, 400);
     }
     const body: ChatRequest = parsed.data;
+    if (body.stream) {
+      return c.json({
+        error: { message: "Streaming is not supported on this endpoint yet. Omit stream or use /api/turn/stream." },
+      }, 400);
+    }
     try {
       const out = await routeChat(cfg, body);
       return c.json({
