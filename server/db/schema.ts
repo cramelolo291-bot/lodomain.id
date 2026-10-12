@@ -110,6 +110,28 @@ export const magicLinks = pgTable(
   ],
 );
 
+/** Per-user module settings; provider credentials are intentionally excluded. */
+export const moduleConnections = pgTable(
+  "module_connections",
+  {
+    id: id(),
+    ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    moduleKey: text("module_key").notNull(),
+    displayName: text("display_name").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    status: text("status").notNull().default("not_configured"),
+    endpointUrl: text("endpoint_url"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("module_connections_owner_key_unique").on(t.ownerId, t.moduleKey),
+    index("module_connections_owner_idx").on(t.ownerId, t.updatedAt),
+  ],
+);
+
 // ── Conversation ───────────────────────────────────────────────────────────
 
 export const projects = pgTable(
@@ -399,6 +421,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   projects: many(projects),
   apiKeys: many(apiKeys),
+  moduleConnections: many(moduleConnections),
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
@@ -452,6 +475,7 @@ export const schema = {
   traces,
   guardrailHits,
   apiKeys,
+  moduleConnections,
   projectTables,
   projectColumns,
   projectRows,
