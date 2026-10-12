@@ -14,7 +14,7 @@ import { getAgent } from "../src/lib/catalog";
 import { getModel, MODELS } from "../src/lib/catalog";
 import { hashToken, generateToken, generateApiKey, verifyApiKey } from "../server/auth/tokens";
 import { screen } from "../src/lib/guardrails";
-import { roleForNewUser } from "../server/auth/magic-link";
+import { isAllowedLoginEmail, roleForNewUser } from "../server/auth/magic-link";
 
 let pass = 0;
 let fail = 0;
@@ -45,6 +45,23 @@ check(
 check(
   "later development accounts are regular users",
   roleForNewUser("friend@example.com", 1, "development", "") === "user",
+);
+
+check(
+  "production blocks an unlisted email",
+  !isAllowedLoginEmail("stranger@example.com", "production", "member@example.com", "owner@example.com"),
+);
+check(
+  "production allows an explicitly listed email",
+  isAllowedLoginEmail("member@example.com", "production", "member@example.com", "owner@example.com"),
+);
+check(
+  "production allows the configured admin",
+  isAllowedLoginEmail("owner@example.com", "production", "", "owner@example.com"),
+);
+check(
+  "development remains open for local setup",
+  isAllowedLoginEmail("anyone@example.com", "development", "", ""),
 );
 
 // ── File blocks ────────────────────────────────────────────────────────────
