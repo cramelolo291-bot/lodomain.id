@@ -8,7 +8,7 @@
 // pruning pass that drops menus and footers so the model sees the article, not
 // the chrome.
 
-import { decodeEntities, parse, isHeadTag, isLayoutTag, attrOf, matches, textOf, type Node } from "./dom";
+import { decodeEntities, parse, isHeadTag, attrOf, textOf, type Node } from "./dom";
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
