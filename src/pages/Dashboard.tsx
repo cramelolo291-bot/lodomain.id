@@ -5,8 +5,6 @@
 // the real file tree. No auth, no keys, no writes. This route is intentionally
 // unauthenticated and remote from the repo's source folder.
 //
-// The counts here are the published values for browser-use/jev-ultrafast:
-// 21,823 stars, 1,552 forks, 40 open issues and 142 open PRs.
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -268,7 +266,7 @@ export default function Dashboard() {
                     <Star className="size-4 text-amber-500" />
                     growth
                   </h2>
-                  <p className="mt-2 font-mono text-[12px] text-ink-4">{fmt(stars)} stars · {fmt(forks)} forks</p>
+                  <p className="mt-2 font-mono text-[12px] text-ink-4">{fmt(stars ?? 0)} stars · {fmt(forks ?? 0)} forks</p>
                   <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-3">
                     <div className="h-full rounded-full bg-amber-500" />
                   </div>
@@ -315,12 +313,12 @@ export default function Dashboard() {
                 <div className="grid grid-cols-2 gap-4 p-6 sm:grid-cols-4">
                   <div className="text-center">
                     <p className="font-mono text-[11px] text-ink-4">open issues</p>
-                    <p className="display mt-1 text-[26px] leading-none text-ember]">{fmt(openIssues)}</p>
+                    <p className="display mt-1 text-[26px] leading-none text-ember]">{fmt(openIssues ?? 0)}</p>
                     <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">awaiting triage</p>
                   </div>
                   <div className="text-center">
                     <p className="font-mono text-[11px] text-ink-4">open PRs</p>
-                    <p className="display mt-1 text-[26px] leading-none text-amber-500">{fmt(openPrs)}</p>
+                    <p className="display mt-1 text-[26px] leading-none text-amber-500">{fmt(openPrs ?? 0)}</p>
                     <p className="mt-0.5 font-mono text-[10.5px] text-ink-4">in flight</p>
                   </div>
                   <div className="text-center">
