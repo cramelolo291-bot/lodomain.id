@@ -4,7 +4,7 @@ Everything the server reads. Copy the block below into a file named `.env` in
 the project root. **Never commit it.**
 
 ```bash
-cp docs/ENVIRONMENT.md .env   # then delete everything above this line
+cp .env.example .env
 ```
 
 Or just create `.env` by hand and paste the contents of the code block in
@@ -32,6 +32,9 @@ AUTO_MIGRATE=true
 SESSION_COOKIE=lolo_session
 SESSION_TTL_HOURS=720
 MAGIC_LINK_TTL_MINUTES=15
+# Comma-separated emails allowed to administer a production deployment.
+# Required for production admin access; never rely on first-signup bootstrap.
+ADMIN_EMAILS=owner@example.com
 
 # Without a key, magic links are printed to the server log instead of sent.
 # Enough to develop against; set it to send real mail.
@@ -75,9 +78,10 @@ VITE_API_MODE=http
 VITE_API_URL=http://localhost:8787
 ```
 
-Only `DATABASE_URL` has a usable default. Everything else falls back to a
-sane value so a fresh checkout starts, but `APP_URL` and `RESEND_API_KEY` are
-the two you will actually have to set.
+`DATABASE_URL` has a local-development default. In production, set a strong
+unique database password, the real `APP_URL`, `ADMIN_EMAILS`, and `RESEND_API_KEY`.
+Without `RESEND_API_KEY`, login links are written to server logs, so do not use
+that fallback on a public production deployment.
 
 ## First run
 
@@ -102,9 +106,11 @@ bun run dev:full
 
 Then open <http://localhost:5173>.
 
-The first account to complete a magic link becomes the **admin** and is the only
-one who can see the pool, traces of other users, and the guardrail log. Every
-account after is a regular user.
+In development and tests, the first account can bootstrap the **admin**. In
+production, the first signup is always a regular user; set `ADMIN_EMAILS` to a
+comma-separated allowlist of the exact email addresses allowed to administer
+the deployment. Existing allowlisted users are promoted on their next sign-in.
+Without an allowlist, no new production account can become admin.
 
 ## Ollama sizing
 
