@@ -11,17 +11,12 @@ import { Link } from "react-router";
 import { AppShell } from "@/components/AppShell";
 import {
   ArrowRight,
-  Check,
-  ChevronRight,
   Code2,
   Download,
   Eye,
   GitBranch,
   GitBranchPlus,
-  Heart,
   Star,
-  TrendingDown,
-  TrendingUp,
   Users,
   GitFork,
 } from "lucide-react";
