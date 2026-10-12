@@ -231,7 +231,7 @@ dataSpace.post("/projects/:project/tables/:table/rows", async (c) => {
 
 dataSpace.patch("/projects/:project/tables/:table/rows/:rowId", async (c) => {
   const { userId } = c.get("session");
-  const { project: ref, table } = params(c, rowParams);
+  const { project: ref, table, rowId } = params(c, rowParams);
   const input = await body(c, patchRowBody);
 
   const project = await resolveProject(ref, userId);
@@ -270,7 +270,7 @@ dataSpace.patch("/projects/:project/tables/:table/rows/:rowId", async (c) => {
 
 dataSpace.delete("/projects/:project/tables/:table/rows/:rowId", async (c) => {
   const { userId } = c.get("session");
-  const { project: ref, table, rowId } = params(c, rowParams);
+  const { project: ref, table } = params(c, rowParams);
   const pk = c.req.query("pk") ?? "id";
   const key = c.req.param("rowId");
 
