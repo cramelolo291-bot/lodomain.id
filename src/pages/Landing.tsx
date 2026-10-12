@@ -1,639 +1,144 @@
 import { Logo } from "@/components/AppShell";
+import { useTheme } from "@/hooks/use-theme";
 import {
-  EffortMatrix,
-  HeroOrbit,
-  Horizon,
-  PipelineDiagram,
-} from "@/components/Graphics";
-import { AGENTS, ALTERNATIVES, GATEWAY_ROUTES, MODELS, TIER_LIMITS } from "@/lib/api";
-import { DAILY_FREEBUCKS } from "@/lib/api";
-import { ATTACK_TECHNIQUES } from "@/lib/guardrails";
-import { cn } from "@/lib/utils";
-import { ArrowRight, ArrowUpRight, Check, Copy } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+  ArrowDownRight, ArrowRight, ArrowUpRight, Blocks, Bot, Cloud,
+  Code2, Globe, Menu, MessageSquare, Moon, ShieldCheck, Sun, Workflow, X,
+} from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router";
 
-/** Adds `in-view` once, then stops watching. */
-function useReveal<T extends HTMLElement>(threshold = 0.12) {
-  const ref = useRef<T>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) {
-          el.classList.add("in-view");
-          io.disconnect();
-        }
-      },
-      { threshold },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [threshold]);
-  return ref;
-}
-
-function Reveal({
-  children,
-  delay = 0,
-  className,
-}: {
-  children: React.ReactNode;
-  delay?: number;
-  className?: string;
-}) {
-  const ref = useReveal<HTMLDivElement>();
-  return (
-    <div
-      ref={ref}
-      className={cn("reveal", className)}
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        void navigator.clipboard?.writeText(text);
-        setDone(true);
-        setTimeout(() => setDone(false), 1600);
-      }}
-      className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] text-ink-3 transition-colors hover:border-[rgba(244,241,234,0.2)] hover:text-ink-1"
-    >
-      {done ? <Check className="size-3" /> : <Copy className="size-3" />
-      }
-      {done ? "tersalin" : "salin"}
-    </button>
-  );
-}
-
-/** One section label + title pair, so the rhythm never drifts. */
-function Head({
-  eyebrow,
-  title,
-  body,
-}: {
-  eyebrow: string;
-  title: React.ReactNode;
-  body?: string;
-}) {
-  return (
-    <>
-      <Reveal>
-        <p className="eyebrow">{eyebrow}</p>
-      </Reveal>
-      <Reveal delay={60}>
-        <h2 className="display mt-6 max-w-[19ch] text-[clamp(30px,4.6vw,56px)] text-ink-1">
-          {title}
-        </h2>
-      </Reveal>
-      {body && (
-        <Reveal delay={120}>
-          <p className="mt-6 max-w-[54ch] text-[16.5px] leading-[1.75] text-ink-2">
-            {body}
-          </p>
-        </Reveal>
-      )}
-    </>
-  );
-}
-
-const EFFORT_ROWS = [
-  { id: "deepseek/* · z-ai/glm · stealth", efforts: ["low", "high", "max"] },
-  { id: "openai/gpt-6 · gemini-3.8", efforts: ["low", "medium", "high", "xhigh", "max"] },
-  { id: "meta/muse-spark", efforts: ["minimal", "low", "medium", "high", "xhigh"] },
-  { id: "solar · mimo · kimi", efforts: [] },
+const modules = [
+  { route: "/messages", label: "MESSAGING", name: "Team messaging", description: "Ruang komunikasi tim melalui Rocket.Chat.", source: "Rocket.Chat", icon: MessageSquare, tone: "text-sky-500", number: "01" },
+  { route: "/browser", label: "AUTOMATION", name: "Browser agent", description: "Workspace untuk tugas navigasi dan otomasi web.", source: "OpenBrowser AI", icon: Globe, tone: "text-violet-500", number: "02" },
+  { route: "/security", label: "SECURITY", name: "Security lab", description: "Alur pengujian terotorisasi dengan batas scope.", source: "Strix", icon: ShieldCheck, tone: "text-emerald-500", number: "03" },
+  { route: "/cloud", label: "STORAGE", name: "Cloud drive", description: "Kelola konfigurasi koneksi penyimpanan cloud.", source: "OmniCloud", icon: Cloud, tone: "text-cyan-500", number: "04" },
+  { route: "/reverse-engineering", label: "ANALYSIS", name: "Reverse engineering", description: "Ruang kerja analisis aplikasi dan binary.", source: "REA", icon: Code2, tone: "text-amber-500", number: "05" },
+  { route: "/deploy", label: "INFRASTRUCTURE", name: "Deploy & hosting", description: "Akses alur kerja deployment dan hosting.", source: "Railway", icon: Workflow, tone: "text-rose-500", number: "06" },
 ];
 
-const origin =
-  typeof window !== "undefined" ? window.location.origin : "https://lolo.ai";
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <span className="inline-flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[.2em] text-ink-3"><span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,.8)]" />{children}</span>;
+}
 
 export default function Landing() {
+  const { theme, toggle } = useTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
-    <div className="grain relative overflow-x-hidden">
-      {/* ── Nav ─────────────────────────────────────────────────────── */}
-      <header className="fixed inset-x-0 top-0 z-50 px-4 pt-4 sm:px-6 sm:pt-5">
-        <div className="mx-auto flex max-w-[1120px] items-center justify-between gap-3 rounded-full border border-border bg-background/65 p-1.5 pl-4 backdrop-blur-2xl">
-          <Link to="/" className="flex items-center gap-2.5">
-            <Logo />
-            <span className="text-[14px] font-medium tracking-tight text-ink-1">
-              Lolo AI
-            </span>
+    <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-48 left-[42%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,rgba(239,68,68,.14),transparent_68%)] blur-2xl" />
+        <div className="absolute right-[-180px] top-[620px] h-[460px] w-[460px] rounded-full bg-[radial-gradient(circle,rgba(127,127,160,.13),transparent_70%)] blur-2xl" />
+        <div className="absolute inset-0 opacity-[.035] [background-image:linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:48px_48px]" />
+      </div>
+
+      <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-6 sm:pt-5">
+        <div className="mx-auto flex max-w-7xl items-center justify-between rounded-2xl border border-border/80 bg-background/75 px-4 py-3 shadow-[0_8px_36px_rgba(0,0,0,.06)] backdrop-blur-2xl sm:rounded-full sm:px-5">
+          <Link to="/" className="flex min-w-0 items-center gap-3" aria-label="LOLODOMAIN.ID beranda">
+            <span className="flex size-9 items-center justify-center rounded-xl border border-border bg-surface-2"><Logo /></span>
+            <span className="leading-tight"><span className="block text-sm font-semibold tracking-[.08em] text-ink-1">LOLODOMAIN<span className="text-[#ef4444]">.</span>ID</span><span className="mt-0.5 block font-mono text-[9px] tracking-[.16em] text-ink-4">AGENT WORKSPACE</span></span>
           </Link>
 
-          <nav className="hidden items-center gap-8 lg:flex">
-            {[
-              ["#crew", "Agen"],
-              ["#gateway", "Gateway"],
-              ["#models", "Model"],
-              ["#cost", "Biaya"],
-              ["#guardrail", "Guardrail"],
-            ].map(([href, label]) => (
-              <a
-                key={href}
-                href={href}
-                className="text-[13px] text-ink-3 transition-colors hover:text-ink-1"
-              >
-                {label}
-              </a>
-            ))}
+          <nav className="hidden items-center gap-7 md:flex">
+            <a href="#platform" className="text-sm text-ink-3 transition hover:text-ink-1">Platform</a>
+            <a href="#modules" className="text-sm text-ink-3 transition hover:text-ink-1">Modul</a>
+            <a href="#security" className="text-sm text-ink-3 transition hover:text-ink-1">Keamanan</a>
+            <Link to="/integrations" className="text-sm text-ink-3 transition hover:text-ink-1">Integrasi</Link>
           </nav>
 
           <div className="flex items-center gap-2">
-            <Link to="/auth" className="btn-ghost hidden sm:inline-flex">
-              Masuk
-            </Link>
-            <Link to="/auth" className="btn-primary">
-              Mulai
-            </Link>
+            <button type="button" onClick={toggle} aria-label={theme === "dark" ? "Aktifkan tema terang" : "Aktifkan tema gelap"} className="inline-flex size-10 items-center justify-center rounded-full border border-border bg-surface-1 text-ink-2 transition hover:border-[#ef4444]/50 hover:text-ink-1">
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <Link to="/auth" className="hidden rounded-full bg-ink-1 px-5 py-2.5 text-sm font-semibold text-background transition hover:opacity-85 sm:inline-flex">Masuk <ArrowUpRight className="ml-2 size-4" /></Link>
+            <button type="button" onClick={() => setMenuOpen(!menuOpen)} aria-label={menuOpen ? "Tutup menu" : "Buka menu"} className="inline-flex size-10 items-center justify-center rounded-full border border-border md:hidden">{menuOpen ? <X size={17} /> : <Menu size={17} />}</button>
           </div>
         </div>
+        {menuOpen && <nav className="mx-auto mt-2 grid max-w-7xl gap-1 rounded-2xl border border-border bg-background/95 p-3 shadow-xl backdrop-blur-2xl md:hidden">
+          {[["#platform", "Platform"], ["#modules", "Modul"], ["#security", "Keamanan"], ["/integrations", "Integrasi"]].map(([href, label]) => href.startsWith("/") ? <Link key={href} to={href} onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm text-ink-2 hover:bg-surface-2">{label}</Link> : <a key={href} href={href} onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm text-ink-2 hover:bg-surface-2">{label}</a>)}
+          <Link to="/auth" onClick={() => setMenuOpen(false)} className="mt-1 rounded-xl bg-ink-1 px-3 py-3 text-center text-sm font-semibold text-background">Masuk ke workspace <ArrowRight className="ml-1 inline size-4" /></Link>
+        </nav>}
       </header>
 
-      {/* ── Hero ────────────────────────────────────────────────────── */}
-      <section className="relative flex min-h-[100svh] items-center px-5 pt-36 pb-24">
-        <div className="glow" />
-        <div className="fade-out" />
+      <section id="platform" className="relative mx-auto grid min-h-[92svh] max-w-7xl items-center gap-12 px-5 pb-20 pt-36 sm:px-8 lg:grid-cols-[1.1fr_.9fr] lg:gap-16 lg:pb-24 lg:pt-40">
+        <div className="relative z-10">
+          <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-surface-1/75 px-3.5 py-2 shadow-sm backdrop-blur-xl"><Eyebrow>CONTROL PLANE · LOLODOMAIN.ID</Eyebrow></div>
+          <h1 className="max-w-4xl text-[clamp(3.1rem,8.6vw,7.2rem)] font-semibold leading-[.94] tracking-[-.075em] text-ink-1">
+            Satu ruang.
+            <br />Banyak <span className="font-serif font-normal italic text-[#ef4444]">kemungkinan.</span>
+          </h1>
+          <p className="mt-7 max-w-xl text-base leading-7 text-ink-2 sm:text-lg sm:leading-8">Workspace agent yang menyatukan modul komunikasi, browser, keamanan, cloud, analisis, dan deployment dalam satu antarmuka yang teratur.</p>
+          <div className="mt-9 flex flex-wrap items-center gap-3">
+            <Link to="/auth" className="group inline-flex items-center rounded-full bg-[#ef4444] px-6 py-3.5 text-sm font-semibold text-white shadow-[0_8px_30px_rgba(239,68,68,.22)] transition duration-300 hover:-translate-y-0.5 hover:bg-[#dc2626]">Buka workspace <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" /></Link>
+            <Link to="/integrations" className="inline-flex items-center rounded-full border border-border bg-surface-1/70 px-6 py-3.5 text-sm font-medium text-ink-1 backdrop-blur-xl transition hover:border-[#ef4444]/50">Jelajahi modul <ArrowDownRight className="ml-2 size-4" /></Link>
+          </div>
+          <div className="mt-12 flex flex-wrap gap-x-8 gap-y-4 border-t border-border pt-6">
+            <div><p className="text-2xl font-semibold tracking-tight text-ink-1">01<span className="text-[#ef4444]">.</span></p><p className="mt-1 text-xs text-ink-3">Satu identitas</p></div>
+            <div><p className="text-2xl font-semibold tracking-tight text-ink-1">06<span className="text-[#ef4444]">.</span></p><p className="mt-1 text-xs text-ink-3">Rute modul</p></div>
+            <div><p className="text-2xl font-semibold tracking-tight text-ink-1">RBAC<span className="text-[#ef4444]">.</span></p><p className="mt-1 text-xs text-ink-3">Akses terkontrol</p></div>
+          </div>
+        </div>
 
-        <div className="shell">
-          <div className="grid items-center gap-16 lg:grid-cols-[1.05fr_0.95fr]">
-            <div>
-              <Reveal>
-                <span className="glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-[11px] text-ink-3">
-                  <span className="pulse-dot" />
-                  self-hosted · 9 subagents · no API key
-                </span>
-              </Reveal>
-
-              <Reveal delay={90}>
-                <h1 className="display mt-8 text-[clamp(40px,7vw,82px)] text-ink-1">
-                  Sistem agent
-                  <br />
-                  AI milik lo
-                  <br />
-                  <span className="italic text-ember">sendiri.</span>
-                </h1>
-              </Reveal>
-
-              <Reveal delay={180}>
-                <p className="mt-8 max-w-[44ch] text-[17px] leading-[1.75] text-ink-2">
-                  Satu portal untuk ngobrol, satu gateway untuk nyambungin ke
-                  editor apa pun. Empat spesialis, satu pool akun, satu server
-                  — dan nol request yang keluar tanpa lo izinkan.
-                </p>
-              </Reveal>
-
-              <Reveal delay={260}>
-                <div className="mt-10 flex flex-wrap gap-3">
-                  <Link to="/auth" className="btn-primary">
-                    Lanjutkan
-                    <ArrowRight className="size-4" />
-                  </Link>
-                  <Link to="/studio/" className="btn-primary">
-                    Buka Studio
-                    <ArrowRight className="size-4" />
-                  </Link>
-                  <Link to="/web/" className="btn-ghost">
-                    Lihat repo publik
-                  </Link>
-                  <a href="#gateway" className="btn-ghost">
-                    Cara kerjanya
-                  </a>
-                </div>
-              </Reveal>
-
-              <Reveal delay={340}>
-                <div className="mt-14 flex flex-wrap items-center gap-x-8 gap-y-4">
-                  {[
-                    ["0", "USD per tahun"],
-                    [`${DAILY_FREEBUCKS}`, "Freebucks per hari"],
-                    [`${MODELS.length}`, "model dalam katalog"],
-                    [`${ATTACK_TECHNIQUES.length}`, "serangan diawasi"],
-                  ].map(([n, label]) => (
-                    <div key={label}>
-                      <p className="stat-num text-[26px]">
-                        {n}
-                      </p>
-                      <p className="mt-2 font-mono text-[10px] tracking-[0.08em] text-ink-4 uppercase">
-                        {label}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </Reveal>
+        <div className="relative mx-auto w-full max-w-xl">
+          <div className="absolute -inset-6 rounded-[2.5rem] bg-[radial-gradient(ellipse_at_center,rgba(239,68,68,.12),transparent_68%)] blur-2xl" />
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#101014] p-4 text-white shadow-[0_35px_100px_rgba(0,0,0,.28)] sm:p-6">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-white/[.07]"><Bot size={19} /></span><div><p className="text-sm font-medium">Lolo Control</p><p className="mt-1 font-mono text-[10px] text-white/45">WORKSPACE OVERVIEW</p></div></div>
+              <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-[9px] tracking-wider text-white/55">PREVIEW</span>
             </div>
+            <div className="grid grid-cols-2 gap-3 py-5">
+              <div className="rounded-2xl border border-white/10 bg-white/[.045] p-4"><p className="font-mono text-[9px] tracking-widest text-white/45">MODULE REGISTRY</p><p className="mt-3 text-3xl font-semibold">06</p><p className="mt-1 text-xs text-white/50">Rute terdaftar</p></div>
+              <div className="rounded-2xl border border-white/10 bg-white/[.045] p-4"><p className="font-mono text-[9px] tracking-widest text-white/45">ACCESS CONTROL</p><p className="mt-3 text-3xl font-semibold">RBAC</p><p className="mt-1 text-xs text-white/50">Izin berbasis peran</p></div>
+            </div>
+            <div className="space-y-2">
+              {modules.slice(0, 4).map((item, i) => {
+                const Icon = item.icon;
+                return <Link to={item.route} key={item.route} className="group flex items-center gap-3 rounded-xl border border-white/[.07] bg-white/[.025] p-3 transition duration-300 hover:translate-x-1 hover:border-white/20 hover:bg-white/[.06]">
+                  <span className="flex size-9 items-center justify-center rounded-lg bg-white/[.06]"><Icon size={16} className={item.tone} /></span>
+                  <span className="min-w-0 flex-1"><span className="block text-sm text-white/90">{item.name}</span><span className="mt-0.5 block truncate text-[11px] text-white/40">{item.source}</span></span>
+                  <ArrowUpRight size={15} className="text-white/30 transition group-hover:text-white" />
+                </Link>;
+              })}
+            </div>
+            <p className="mt-4 border-t border-white/10 pt-4 font-mono text-[9px] tracking-[.12em] text-white/35">MODULE CONFIGURATION ≠ LIVE CONNECTION</p>
+          </div>
+          <div className="absolute -right-2 top-16 hidden rounded-2xl border border-border/70 bg-background/85 p-3 shadow-xl backdrop-blur-xl sm:block"><div className="flex items-center gap-2"><Blocks size={15} className="text-[#ef4444]" /><span className="text-xs font-medium text-ink-1">Modular by design</span></div><p className="mt-1 pl-6 text-[10px] text-ink-3">Satu pintu masuk, izin terpisah</p></div>
+        </div>
+      </section>
 
-            <Reveal delay={220} className="hidden lg:block">
-              <div className="relative">
-                <HeroOrbit className="opacity-95" />
-                <p className="mt-2 text-center font-mono text-[10px] tracking-[0.1em] text-ink-4 uppercase">
-                  empat spesialis · satu pool
-                </p>
-              </div>
-            </Reveal>
+      <section id="modules" className="relative mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
+        <div className="mb-10 flex flex-col justify-between gap-5 sm:mb-14 md:flex-row md:items-end">
+          <div><Eyebrow>MODULAR ECOSYSTEM</Eyebrow><h2 className="mt-5 max-w-2xl text-4xl font-semibold tracking-[-.055em] text-ink-1 sm:text-6xl">Semua alat, <span className="font-serif font-normal italic text-[#ef4444]">tertata.</span></h2></div>
+          <p className="max-w-md text-sm leading-6 text-ink-3">Setiap modul punya halaman dan batas tanggung jawab sendiri. Status koneksi tidak dianggap aktif hanya karena konfigurasi tersimpan.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {modules.map((item) => {
+            const Icon = item.icon;
+            return <Link key={item.route} to={item.route} className="group relative overflow-hidden rounded-3xl border border-border bg-surface-1/65 p-5 backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-[#ef4444]/35 hover:shadow-[0_18px_50px_rgba(0,0,0,.08)] sm:p-6">
+              <div className="mb-9 flex items-start justify-between"><span className="flex size-11 items-center justify-center rounded-2xl border border-border bg-surface-2"><Icon size={19} className={item.tone} /></span><span className="font-mono text-[10px] tracking-widest text-ink-4">{item.number}</span></div>
+              <p className="font-mono text-[9px] tracking-[.18em] text-ink-4">{item.label}</p>
+              <h3 className="mt-2 text-lg font-semibold tracking-tight text-ink-1">{item.name}</h3>
+              <p className="mt-2 min-h-12 text-sm leading-6 text-ink-3">{item.description}</p>
+              <div className="mt-5 flex items-center justify-between border-t border-border pt-4"><span className="text-xs text-ink-2">{item.source}</span><span className="flex size-8 items-center justify-center rounded-full border border-border transition group-hover:border-[#ef4444]/40 group-hover:bg-[#ef4444] group-hover:text-white"><ArrowUpRight size={15} /></span></div>
+            </Link>;
+          })}
+        </div>
+        <div className="mt-5 rounded-2xl border border-border bg-surface-2/70 px-5 py-4 text-xs leading-5 text-ink-3"><span className="font-semibold text-ink-1">Transparan soal status:</span> daftar ini menunjukkan rute modul yang tersedia di aplikasi. Koneksi ke layanan upstream harus dikonfigurasi dan diverifikasi terpisah.</div>
+      </section>
+
+      <section id="security" className="relative mx-auto max-w-7xl px-5 pb-24 pt-8 sm:px-8 sm:pb-32">
+        <div className="relative overflow-hidden rounded-[2rem] border border-border bg-surface-1/70 p-7 backdrop-blur-xl sm:p-12 lg:p-16">
+          <div aria-hidden className="absolute -right-16 -top-20 size-72 rounded-full bg-[radial-gradient(circle,rgba(239,68,68,.14),transparent_68%)]" />
+          <div className="relative grid gap-10 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div><Eyebrow>SECURITY BY DEFAULT</Eyebrow><h2 className="mt-5 max-w-3xl text-3xl font-semibold leading-tight tracking-[-.05em] text-ink-1 sm:text-5xl">Akses seperlunya.<br /><span className="font-serif font-normal italic text-[#ef4444]">Kendali tetap di tanganmu.</span></h2><p className="mt-5 max-w-2xl text-sm leading-7 text-ink-3 sm:text-base">Login dan pemeriksaan peran tetap menjadi gerbang workspace. Operasi sensitif perlu izin eksplisit; token layanan tidak ditaruh di frontend.</p></div>
+            <Link to="/integrations" className="inline-flex w-fit items-center rounded-full border border-border bg-background px-5 py-3 text-sm font-medium text-ink-1 transition hover:border-[#ef4444]/50">Lihat integrasi <ArrowRight className="ml-2 size-4" /></Link>
           </div>
         </div>
       </section>
 
-      {/* ── Economics ───────────────────────────────────────────────── */}
-      <section id="cost" className="hairline px-5 py-24 sm:py-32">
-        <div className="shell">
-          <Head
-            eyebrow="the maths"
-            title={
-              <>
-                Nol dolar. <span className="italic text-ember">Bukan trikan.</span>
-              </>
-            }
-            body="Yang kamu bayar cuma VPS-nya. Freebucks di-refill tiap tengah malam Waktu Pasifik, nggak ngakum ke hari berikutnya, dan bisa dipakai ke model mana aja."
-          />
-
-          <div className="mt-14 grid gap-px overflow-hidden rounded-[16px] border border-border bg-border lg:grid-cols-[0.9fr_1.1fr]">
-            <Reveal>
-              <div className="h-full bg-surface-1 p-7 sm:p-9">
-                <p className="font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
-                  jam gratis per hari
-                </p>
-                <ul className="mt-6 space-y-3.5">
-                  {MODELS.map((m) => (
-                    <li key={m.id} className="flex items-center gap-3">
-                      <span className="w-36 shrink-0 truncate text-[13px] text-ink-2">
-                        {m.label}
-                      </span>
-                      <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-3">
-                        {m.unmetered ? (
-                          <div className="h-full w-full bg-[#9db4a8]" />
-                        ) : m.freeHours > 0 ? (
-                          <div
-                            className="h-full rounded-full bg-ember"
-                            style={{ width: `${(m.freeHours / 20) * 100}%` }}
-                          />
-                        ) : null}
-                      </div>
-                      <span className="w-20 shrink-0 text-right font-mono text-[11px] text-ink-4">
-                        {m.unmetered
-                          ? "unmetered"
-                          : m.freeHours > 0
-                            ? `${m.freeHours} jam`
-                            : "berbayar"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-6 text-[12.5px] leading-[1.7] text-ink-4">
-                  Space Bunny Alpha nggak menyentuh jatah harian sama sekali.
-                  Gemini 3.8 Flash diikuti paket berbayar. Sisanya memakai jatah
-                  yang sama — jadi jamnya nggak bisa dijumlahkan.
-                </p>
-              </div>
-            </Reveal>
-
-            <Reveal delay={90}>
-              <div className="h-full bg-surface-1 p-7 sm:p-9">
-                <p className="font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
-                  yang digantikan, per tahun
-                </p>
-                <ul className="mt-6 space-y-3">
-                  <li className="flex items-center gap-3">
-                    <span className="w-28 shrink-0 text-[13px] text-ink-1">
-                      Lolo AI
-                    </span>
-                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-surface-3">
-                      <div className="h-full w-[3%] min-w-2 rounded-full bg-ember" />
-                    </div>
-                    <span className="w-20 shrink-0 text-right font-mono text-[12px] text-ember">
-                      $0
-                    </span>
-                  </li>
-                  {ALTERNATIVES.map((a) => (
-                    <li key={a.name} className="flex items-center gap-3">
-                      <span className="w-28 shrink-0 truncate text-[13px] text-ink-3">
-                        {a.name}
-                      </span>
-                      <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-surface-3">
-                        <div
-                          className="h-full rounded-full bg-[#5a534a]"
-                          style={{
-                            width: `${(a.price / ALTERNATIVES[0]!.price) * 100}%`,
-                          }}
-                        />
-                      </div>
-                      <span className="w-20 shrink-0 text-right font-mono text-[12px] text-ink-3">
-                        ${a.price.toLocaleString("en-US")}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-6 text-[12.5px] leading-[1.7] text-ink-4">
-                  Harga daftar yang dipublikasikan masing-masing vendor, bukan
-                  klaim soal Lolo. Yang lo bayar cuma biaya server.
-                </p>
-              </div>
-            </Reveal>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Crew ────────────────────────────────────────────────────── */}
-      <section id="crew" className="hairline px-5 py-24 sm:py-32">
-        <div className="shell">
-          <Reveal>
-            <Horizon className="-mb-20 h-28 opacity-50" />
-          </Reveal>
-          <Head
-            eyebrow="the crew"
-            title="Sembilan subagent, empat peran. Nggak ada satu model buat semua."
-            body="Keunggulan freebuff bukan modelnya lebih pintar, tapi tugasnya dipecah. Lolo membawa pemisahan yang sama ke server lo sendiri — dan setiap langkahnya bisa ditelusuri."
-          />
-
-          <div className="mt-14 grid gap-px overflow-hidden rounded-[16px] border border-border bg-border sm:grid-cols-2">
-            {AGENTS.map((a, i) => (
-              <Reveal key={a.key} delay={i * 70}>
-                <div className="group h-full bg-surface-1 p-7 transition-colors hover:bg-surface-2 sm:p-9">
-                  <div className="flex items-center gap-2.5">
-                    <span
-                      className={cn(
-                        "size-1.5 rounded-full",
-                        a.accent === "warm" ? "bg-ember" : "bg-[#9db4a8]",
-                      )}
-                    />
-                    <h3 className="text-[15px] font-medium text-ink-1">
-                      {a.name}
-                    </h3>
-                    <span className="ml-auto font-mono text-[10px] tracking-[0.1em] text-ink-4 uppercase">
-                      {a.tagline}
-                    </span>
-                  </div>
-                  <p className="mt-4 max-w-[42ch] text-[14.5px] leading-[1.75] text-ink-3">
-                    {a.description}
-                  </p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Gateway ─────────────────────────────────────────────────── */}
-      <section id="gateway" className="hairline px-5 py-24 sm:py-32">
-        <div className="shell">
-          <Head
-            eyebrow="the gateway"
-            title="Pool yang milih, bukan menebak."
-            body="Setiap request ng-rank akun berdasarkan health, lalu ngambil slot yang kosong. Kalau satu gagal, yang berikutnya. Kalau satu dapat 401, langsung cooldown — bukan dicoba berulang."
-          />
-
-          <Reveal delay={160}>
-            <div className="panel mt-14 p-6 sm:p-10">
-              <PipelineDiagram />
-            </div>
-          </Reveal>
-
-          <div className="mt-px grid gap-px overflow-hidden rounded-[16px] border border-border bg-border lg:grid-cols-2">
-            <Reveal>
-              <div className="h-full bg-surface-1 p-7 sm:p-9">
-                <p className="font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
-                  kapasitas per tier
-                </p>
-                <ul className="mt-6 space-y-4">
-                  {(["free", "subscribed"] as const).map((tier) => (
-                    <li key={tier} className="flex items-baseline gap-3 font-mono text-[12.5px]">
-                      <span className="w-24 text-ink-1">{tier}</span>
-                      <span className="text-ember">
-                        {TIER_LIMITS[tier].slots} slot
-                      </span>
-                      <span className="text-ink-4">
-                        × {TIER_LIMITS[tier].concurrency} concurrent
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-6 text-[13px] leading-[1.7] text-ink-4">
-                  Konkurensi riil dibatasi jumlah slot. Free satu slot berarti
-                  satu request pada satu waktu — dan itu yang bikin rate limit
-                  bisa diprediksi, bukan kejutan.
-                </p>
-              </div>
-            </Reveal>
-
-            <Reveal delay={90}>
-              <div className="h-full bg-surface-1 p-7 sm:p-9">
-                <p className="font-mono text-[10px] tracking-[0.14em] text-ink-4 uppercase">
-                  endpoint
-                </p>
-                <ul className="mt-6 space-y-2.5">
-                  {GATEWAY_ROUTES.map((r) => (
-                    <li key={r.path} className="flex items-baseline gap-3 font-mono text-[12.5px]">
-                      <span className="w-12 shrink-0 text-ember">{r.method}</span>
-                      <span className="min-w-0 truncate text-ink-2">{r.path}</span>
-                      <span className="ml-auto hidden truncate text-ink-4 sm:inline">
-                        {r.note}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </Reveal>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Models ──────────────────────────────────────────────────── */}
-      <section id="models" className="hairline px-5 py-24 sm:py-32">
-        <div className="shell">
-          <Head
-            eyebrow="catalogue"
-            title="Katalog yang sama persis, effort-nya ikut."
-            body="Model yang nggak mendukung reasoning effort nggak error — field-nya dibuang sebelum request dikirim. Di bawah ini matriksnya, digambar langsung dari katalog."
-          />
-
-          <Reveal delay={160}>
-            <div className="panel mt-14 overflow-x-auto p-6 sm:p-9">
-              <EffortMatrix
-                rows={EFFORT_ROWS.map((r) => ({ id: r.id, efforts: r.efforts }))}
-                className="min-w-[440px]"
-              />
-            </div>
-          </Reveal>
-
-          <div className="mt-px overflow-hidden rounded-[16px] border border-border">
-            <div className="hidden grid-cols-[7rem_1fr_4rem_5rem_6rem] gap-4 border-b border-border bg-surface-2 px-6 py-3 font-mono text-[10px] tracking-[0.1em] text-ink-4 uppercase sm:grid">
-              <span>vendor</span>
-              <span>model</span>
-              <span className="text-right">context</span>
-              <span>access</span>
-              <span>jatah</span>
-            </div>
-            {MODELS.map((m, i) => (
-              <Reveal key={m.id} delay={i * 40}>
-                <div className="grid grid-cols-1 gap-x-4 gap-y-1 border-b border-border bg-surface-1 px-6 py-4 last:border-b-0 sm:grid-cols-[7rem_1fr_4rem_5rem_6rem] sm:items-center">
-                  <span className="font-mono text-[10.5px] text-ink-4">
-                    {m.vendor}
-                  </span>
-                  <span className="min-w-0 text-[14px] text-ink-1">
-                    {m.label}
-                    {m.vision && (
-                      <span className="ml-2 font-mono text-[10px] text-ink-4">
-                        vision
-                      </span>
-                    )}
-                  </span>
-                  <span className="font-mono text-[11px] text-ink-3 sm:text-right">
-                    {m.contextK >= 1024 ? "1M" : `${m.contextK}K`}
-                  </span>
-                  <span className="font-mono text-[10.5px] text-ink-4">
-                    {m.efforts.length > 0 ? `${m.efforts.length} effort` : "—"}
-                  </span>
-                  <span className="font-mono text-[10.5px] text-ink-4 sm:text-right">
-                    {m.unmetered
-                      ? "unmetered"
-                      : m.freeHours > 0
-                        ? `${m.freeHours} jam`
-                        : "berbayar"}
-                  </span>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Guardrail ───────────────────────────────────────────────── */}
-      <section id="guardrail" className="hairline px-5 py-24 sm:py-32">
-        <div className="shell">
-          <Head
-            eyebrow="guardrail"
-            title={
-              <>
-                Yang kena filter,{" "}
-                <span className="italic text-ember">nggak sampai ke model.</span>
-              </>
-            }
-            body="Tujuh rule deterministik jalan sebelum apa pun dikirim. Nol token, nol latency, dan request-nya nggak pernah sampai ke akun mana pun. Sisanya — serangan bertahap, payload ter-obfuscate — urusan Red Team agent."
-          />
-
-          <div className="mt-12 flex flex-wrap gap-2">
-            {ATTACK_TECHNIQUES.map((a, i) => (
-              <Reveal key={a.name} delay={i * 30}>
-                <span className="tag tag-quiet">{a.name}</span>
-              </Reveal>
-            ))}
-          </div>
-
-          <Reveal delay={140}>
-            <div className="panel mt-8 flex flex-wrap items-center gap-x-8 gap-y-3 p-6">
-              <span className="tag">7 rules</span>
-              <span className="font-mono text-[12px] text-ink-4">
-                prompt injection · jailbreak · pii · system leak · agency ·
-                shell · credentials
-              </span>
-              <span className="ml-auto font-mono text-[11px] text-ink-3">
-                0 tokens on block
-              </span>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* ── Bring friends ───────────────────────────────────────────── */}
-      <section id="api" className="hairline px-5 py-24 sm:py-32">
-        <div className="shell">
-          <Head
-            eyebrow="bring your friends"
-            title="Temen lo cuma butuh satu key."
-            body="Endpoint-nya OpenAI-compatible. Cursor, Cline, atau CLI apa pun yang ngerti OpenAI bisa langsung nunjuk ke server lo."
-          />
-
-          <Reveal delay={120}>
-            <div className="codeblock mt-12">
-              <span className="text-ink-4">$</span>
-              <code className="min-w-0 flex-1 truncate">
-                curl {origin}/v1/chat/completions
-              </code>
-              <CopyButton
-                text={`curl ${origin}/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer sk-lolo-..." -d '{"model":"z-ai/glm-5.3-flash","messages":[{"role":"user","content":"halo"}]}'`}
-              />
-            </div>
-          </Reveal>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            {[
-              ["Masuk", "Magic link. Nggak ada password."],
-              ["Minta", "Spesialis + model + effort."],
-              ["Lihat", "Trace, pool, usage, keys."],
-            ].map(([t, d], i) => (
-              <Reveal key={t} delay={i * 80}>
-                <div className="panel h-full p-6">
-                  <p className="display text-[22px] text-ink-1">
-                    <span className="mr-2 font-mono text-[12px] text-ember">
-                      0{i + 1}
-                    </span>
-                    {t}
-                  </p>
-                  <p className="mt-2 text-[13.5px] leading-[1.7] text-ink-4">
-                    {d}
-                  </p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── CTA ─────────────────────────────────────────────────────── */}
-      <section className="hairline px-5 py-24 sm:py-32">
-        <div className="shell">
-          <Reveal>
-            <div className="relative overflow-hidden rounded-[20px] border border-border bg-surface-1 px-6 py-20 text-center sm:px-12 sm:py-28">
-              <div className="glow" />
-              <div className="relative">
-                <p className="eyebrow">mulai sekarang</p>
-                <h2 className="display mt-7 text-[clamp(32px,5.4vw,62px)] text-ink-1">
-                  Server lo.
-                  <br />
-                  <span className="italic text-ember">Model lo.</span>
-                </h2>
-                <p className="mx-auto mt-7 max-w-[42ch] text-[16px] leading-[1.75] text-ink-2">
-                  Masuk pakai email. Nggak ada password buat disimpan,
-                  dibocorin, atau dilupain.
-                </p>
-                <div className="mt-10 flex flex-wrap justify-center gap-3">
-                  <Link to="/auth" className="btn-primary">
-                    Masuk ke Lolo
-                    <ArrowRight className="size-4" />
-                  </Link>
-                  <a
-                    href="#cost"
-                    className="btn-ghost"
-                  >
-                    Hitung dulu
-                    <ArrowUpRight className="size-4" />
-                  </a>
-                </div>
-              </div>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
-      <footer className="hairline px-5 py-10">
-        <div className="shell flex flex-wrap items-center justify-between gap-3">
-          <span className="flex items-center gap-2.5 text-[12.5px] text-ink-4">
-            <Logo className="size-[19px]" />
-            Lolo AI
-          </span>
-          <span className="font-mono text-[10px] tracking-[0.1em] text-ink-4 uppercase">
-            self-hosted gateway · nothing leaves your machine
-          </span>
-        </div>
+      <footer className="border-t border-border px-5 py-7 sm:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 text-xs text-ink-3 sm:flex-row sm:items-center sm:justify-between"><Link to="/" className="flex items-center gap-2"><Logo className="size-5" /><span className="font-semibold tracking-[.1em] text-ink-1">LOLODOMAIN.ID</span></Link><p>Agent workspace · Modular, responsif, dan transparan soal status koneksi.</p><Link to="/auth" className="inline-flex items-center gap-1 text-ink-2 transition hover:text-[#ef4444]">Masuk <ArrowUpRight size={13} /></Link></div>
       </footer>
-    </div>
+    </main>
   );
 }
