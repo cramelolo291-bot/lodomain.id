@@ -42,8 +42,9 @@ export function createApp() {
   app.use("/api/auth/verify", rateLimit({ limit: 20, windowMs: 60_000, scope: "verify" }));
   app.use("/api/keys", rateLimit({ limit: 20, windowMs: 60_000, scope: "keys" }));
   app.use("/api/turn", rateLimit({ limit: 60, windowMs: 60_000, scope: "turn" }));
-  // The LLM router is unauthenticated but spends the owner's provider quota,
-  // so it is rate-limited like the other cost-incurring endpoints.
+  // The shared LLM router uses server-owned provider quota. It requires a user
+  // session, caps request bodies, and has its own rate limit.
+  app.use("/llm/*", bodyLimit(2_000_000));
   app.use("/llm/*", rateLimit({ limit: 20, windowMs: 60_000, scope: "llm" }));
   // `/api/turn/stream` deliberately limits itself in its own router, because
   // that mount point also carries a per-conversation budget. Limiting it here
