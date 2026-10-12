@@ -235,3 +235,7 @@ Fields named `authorization`, `cookie`, `password`, `token`, `secret` or
 `api_key` are replaced with `[redacted]` before a line is written, at any
 depth. A 5xx logs the full stack server-side and answers the client a bare
 `Internal server error`.
+
+## Production execution safety
+
+The current build and dev-server runner executes package lifecycle scripts as the server OS user; it is not a container sandbox. For that reason, production build and live dev-server endpoints fail closed until an isolated worker is configured. Do not remove this guard to make previews work. Configure a dedicated sandboxed worker first, then route build and preview jobs to that worker.
