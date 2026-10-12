@@ -4,8 +4,8 @@
 // first request. Nothing here has a default that would silently point at
 // someone else's database.
 
-function required(name: string, fallback?: string): string {
-  const value = process.env[name] ?? fallback;
+function required(name: string): string {
+  const value = process.env[name];
   if (!value) {
     throw new Error(
       `Missing ${name}. Copy .env.example to .env and fill it in — see README.md.`,
@@ -21,19 +21,31 @@ function optional(name: string, fallback: string): string {
 function int(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n)) throw new Error(`${name} must be an integer, got "${raw}"`);
+  if (!/^-?\\d+$/.test(raw)) {
+    throw new Error(`${name} must be an integer, got "${raw}"`);
+  }
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    throw new Error(`${name} must be a positive safe integer, got "${raw}"`);
+  }
+  if (name === "PORT" && n > 65_535) {
+    throw new Error("PORT must be between 1 and 65535");
+  }
   return n;
 }
 
 export const env = {
-  NODE_ENV: optional("NODE_ENV", "development") as
-    | "development"
-    | "production"
-    | "test",
+  NODE_ENV: (() => {
+    const value = optional("NODE_ENV", "development");
+    if (value !== "development" && value !== "production" && value !== "test") {
+      throw new Error("NODE_ENV must be development, test, or production");
+    }
+    return value;
+  })(),
   PORT: int("PORT", 8787),
 
-  DATABASE_URL: required("DATABASE_URL", "postgres://lolo:lolo@localhost:5432/lolo"),
+  // Never silently connect to a predictable local credential in a deployed environment.
+  DATABASE_URL: required("DATABASE_URL"),
 
   /** Public origin, used to build magic links and the OpenAI-compatible base URL. */
   APP_URL: optional("APP_URL", `http://localhost:${int("PORT", 8787)}`),
