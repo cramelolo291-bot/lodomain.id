@@ -94,8 +94,9 @@ async function setup() {
   for (const name of migrationFiles) {
     if (name === "0001_init.sql") continue;
     await pg.exec(await readFile(join("server/db/migrations", name), "utf8"));
-    await pg.exec(
-      `insert into schema_migrations (name) values (${JSON.stringify(name)}) on conflict do nothing`,
+    await pg.query(
+      "insert into schema_migrations (name) values ($1) on conflict do nothing",
+      [name],
     );
   }
 
