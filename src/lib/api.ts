@@ -594,41 +594,19 @@ function mockApi() {
       return runCommand(cmd, state.project);
     },
 
-    /**
-     * The mock pretends to build. It waits long enough for the spinner to be
-     * honest about the fact that a real build is slow, then reports the same
-     * shape the server does — including the "nothing to build" case, because
-     * that is what most mock projects will hit.
-     */
+    /** A mock response must never claim that a real build ran. */
     async runBuild(_project: string, target: BuildTarget): Promise<BuildResult> {
-      const started = Date.now();
-      await new Promise((r) => setTimeout(r, 900 + Math.random() * 600));
-
-      const has = Object.keys(state.project.files);
-      const pkg = has.find((p) => p === "package.json");
-      if (!pkg) {
-        return {
-          ok: true,
-          target,
-          code: 0,
-          output: "No package.json — nothing to install or build.",
-          ms: Date.now() - started,
-          timedOut: false,
-          command: "",
-          skipped: "No package.json — nothing to install or build.",
-          hasOutput: false,
-        };
-      }
-
+      const reason = "Not executed in mock mode. Switch to the real HTTP backend to run a real build.";
       return {
-        ok: true,
+        ok: false,
         target,
-        code: 0,
-        output: `$ npm install --no-audit --no-fund\nadded 148 packages in 3s\n\n$ npm run build\nvite v7.3.6 building for production...\n✓ ${has.length} modules transformed.\ndist/index.html   0.95 kB\nbuilt in 1.2s`,
-        ms: Date.now() - started,
+        code: null,
+        output: reason,
+        ms: 0,
         timedOut: false,
-        command: "npm install --no-audit --no-fund && npm run build",
-        hasOutput: true,
+        command: "",
+        skipped: reason,
+        hasOutput: false,
       };
     },
 
