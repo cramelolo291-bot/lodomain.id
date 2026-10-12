@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Link } from "react-router";
 import {
-  ArrowUpRight, Bot, Cloud, Code2, Database, Globe, MessageSquare,
-  Rocket, ShieldCheck, Sparkles, Workflow,
+  ArrowUpRight, Cloud, Code2, Database, Globe, MessageSquare,
+  Rocket, ShieldCheck, Sparkles,
 } from "lucide-react";
 
 const modules = [
