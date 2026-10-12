@@ -20,7 +20,6 @@ import {
   Star,
   TrendingUp,
 } from "lucide-react";
-import type { FreebuffFile, FreebuffGithubResponse } from "@/lib/frebbuff-data";
 
 const LABEL_COLORS: Record<string, string> = {
   bug: "bg-[#c85a50] text-white",
