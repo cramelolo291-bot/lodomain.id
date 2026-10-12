@@ -32,10 +32,6 @@ const LABEL_COLORS: Record<string, string> = {
   hacktoberfest: "bg-[#b388ff] text-white",
 };
 
-function labelClass(name: string): string {
-  return LABEL_COLORS[name.toLowerCase().replace(/[\s-]/g, "").replace(/^[a-z]/, (c) => c.toUpperCase())] ?? "bg-surface-2 text-ink-4";
-}
-
 import { useEffect, useState, useMemo } from "react";
 import { fetchFreebuffData, sortIssues, sortPrs } from "@/lib/frebbuff-data";
 
