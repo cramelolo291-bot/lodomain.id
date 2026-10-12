@@ -88,7 +88,7 @@ try {
 if (!built) {
   skipped("production static serving", "dist/ not built — run `bun run build`");
   console.log(`\n${pass} passed, ${fail} failed, ${skip} skipped\n`);
-  process.exit(0);
+  process.exit(fail ? 1 : 0);
 }
 
 const { createApp } = await import("../server/app");
