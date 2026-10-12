@@ -56,13 +56,13 @@ function App() {
 
             {/* Modular workspace and dedicated upstream tool pages */}
             <Route path="/integrations" element={<Integrations />} />
-            <Route path="/messages" element={<ModulePage />} />
-            <Route path="/browser" element={<ModulePage />} />
-            <Route path="/security" element={<ModulePage />} />
-            <Route path="/cloud" element={<ModulePage />} />
-            <Route path="/reverse-engineering" element={<ModulePage />} />
-            <Route path="/deploy" element={<ModulePage />} />
-            <Route path="/design" element={<ModulePage />} />
+            <Route path="/messages" element={<ModulePage module="messages" />} />
+            <Route path="/browser" element={<ModulePage module="browser" />} />
+            <Route path="/security" element={<ModulePage module="security" />} />
+            <Route path="/cloud" element={<ModulePage module="cloud" />} />
+            <Route path="/reverse-engineering" element={<ModulePage module="reverse-engineering" />} />
+            <Route path="/deploy" element={<ModulePage module="deploy" />} />
+            <Route path="/design" element={<ModulePage module="design" />} />
 
             {/* Authenticated product routes */}
             <Route path="/chat" element={<RequireAuth><Chat /></RequireAuth>} />
