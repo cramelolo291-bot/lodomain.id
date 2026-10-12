@@ -1,9 +1,8 @@
-// Public, read-only window onto the upstream browser-agent repo.
+// Signed-in, read-only window onto the upstream browser-agent repo.
 //
-// Visitors see the repo tree, language breakdown and the open issue / PR list
-// without a token and without signing in. The page fetches from the GitHub
-// REST API and never touches the repo's source folder, the existing api.ts
-// seam, or any backend command. This route is intentionally unauthenticated.
+// Visitors see live repo metadata, files, languages, issues, and PRs. Data is
+// fetched from GitHub's REST API; this page never writes to the upstream repo
+// or executes commands.
 
 import { Link } from "react-router";
 import { AppShell } from "@/components/AppShell";
