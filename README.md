@@ -95,7 +95,6 @@ VITE_API_URL=http://localhost:8787
 
 Then restart Vite. HTTP mode is the default — these settings are only needed
 when overriding that default or changing the API host.
-`VITE_API_URL` only needs changing if the server is not on :8787.
 
 What changes when you flip it:
 
