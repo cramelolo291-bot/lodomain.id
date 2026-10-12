@@ -32,6 +32,8 @@ AUTO_MIGRATE=true
 SESSION_COOKIE=lolo_session
 SESSION_TTL_HOURS=720
 MAGIC_LINK_TTL_MINUTES=15
+# Exact comma-separated production sign-in allowlist; unlisted emails receive no login link.
+ALLOWED_EMAILS=owner@example.com,member@example.com
 # Comma-separated emails allowed to administer a production deployment.
 # Required for production admin access; never rely on first-signup bootstrap.
 ADMIN_EMAILS=owner@example.com
