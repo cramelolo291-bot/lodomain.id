@@ -1273,6 +1273,9 @@ const useMockApi = apiMode === "mock" && !productionBuild;
 
 export const api: Api = useMockApi ? mockApi() : httpApi();
 
+/** UI warning for the explicitly enabled local-only mock. */
+export const isMockMode = useMockApi;
+
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn);
   return () => {
