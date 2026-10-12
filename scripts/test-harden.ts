@@ -85,6 +85,20 @@ async function setup() {
     `insert into schema_migrations (name) values ('0001_init.sql') on conflict do nothing`,
   );
 
+  // Start from the current schema, not just the initial migration. Otherwise
+  // the migration-lock test below accidentally tests applying 9999_module_connections
+  // rather than verifying that two already-current runs do no work.
+  const migrationFiles = (await readdir("server/db/migrations"))
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+  for (const name of migrationFiles) {
+    if (name === "0001_init.sql") continue;
+    await pg.exec(await readFile(join("server/db/migrations", name), "utf8"));
+    await pg.exec(
+      `insert into schema_migrations (name) values (${JSON.stringify(name)}) on conflict do nothing`,
+    );
+  }
+
   tmp = await mkdtemp(join(tmpdir(), "lolo-backup-"));
 
   const { createApp } = await import("../server/app");
