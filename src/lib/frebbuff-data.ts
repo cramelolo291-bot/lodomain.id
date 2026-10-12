@@ -163,23 +163,17 @@ function authHeader(): Record<string, string> {
   return { Accept: "application/vnd.github+json" };
 }
 
-const EMPTY_SEARCH: FreebuffGithubResponse = { total_count: 0, incomplete_results: true, items: [] };
-const EMPTY_TREE: FreebuffTreeResponse = { sha: "", tree: [], truncated: false };
-
 /**
- * One endpoint, one fallback. This never rejects: GitHub throttles anonymous
- * callers hard (60 core req/hour, 10 search req/minute, per IP) and all four
- * pages share this batch, so a single 403 must degrade one section instead of
- * blanking the whole site.
+ * A failed upstream request is an unavailable result, not a zero-valued or
+ * seeded response. Callers must show the error state instead of fake metrics.
  */
-async function getJson<T>(url: string, fallback: T): Promise<T> {
+async function getJson<T>(url: string): Promise<T | null> {
   try {
     const res = await fetch(url, { headers: authHeader(), cache: "no-store" });
-    if (!res.ok) return fallback;
+    if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
-    // Offline, DNS failure, CORS — same treatment as a throttle.
-    return fallback;
+    return null;
   }
 }
 
@@ -265,34 +259,19 @@ type FreebuffPayload = {
 
 async function fetchFreebuffDataOnce(page: number, perPage: number): Promise<FreebuffPayload> {
   const [repoRaw, treeRes, issuesRes, prsRes] = await Promise.all([
-    // Falls back to the published constants below so the stat cards still
-    // render a real number when the repo endpoint is throttled.
-    getJson<FreebuffRepoRaw>(API, {
-      name: FREEbuff.name,
-      full_name: `${FREEbuff.owner}/${FREEbuff.repo}`,
-      description: FREEbuff.description,
-      html_url: FREEbuff.htmlUrl,
-      homepage: FREEbuff.blog || null,
-      stargazers_count: FREEbuff.stars,
-      forks_count: FREEbuff.forks,
-      size: 172531,
-      default_branch: FREEbuff.defaultBranch,
-    }),
-    getJson<FreebuffTreeResponse>(
-      `${API}/git/trees/main?recursive=1`,
-      EMPTY_TREE,
-    ),
-    // Search is the most aggressively rate-limited surface (10/min, per IP) and
-    // is the one most likely to be exhausted by a visitor clicking around.
+    getJson<FreebuffRepoRaw>(API),
+    getJson<FreebuffTreeResponse>(`${API}/git/trees/main?recursive=1`),
     getJson<FreebuffGithubResponse>(
       `https://api.github.com/search/issues?q=repo:${REPO_SLUG}+is:issue+is:open&per_page=${perPage}&page=${page}`,
-      EMPTY_SEARCH,
     ),
     getJson<FreebuffGithubResponse>(
       `https://api.github.com/search/issues?q=repo:${REPO_SLUG}+is:pr+is:open&per_page=${perPage}&page=${page}`,
-      EMPTY_SEARCH,
     ),
   ]);
+
+  if (!repoRaw || !treeRes || !issuesRes || !prsRes) {
+    throw new Error("Live GitHub data is unavailable or rate-limited. No cached fixture was substituted.");
+  }
 
   const repo: FreebuffRepo = {
     owner: repoRaw.full_name.split("/")[0] ?? "",
@@ -303,11 +282,8 @@ async function fetchFreebuffDataOnce(page: number, perPage: number): Promise<Fre
     bio: repoRaw.description ?? "",
     stars: repoRaw.stargazers_count,
     forks: repoRaw.forks_count,
-    // Search reports 0 under throttling, but the repo object always knows how
-    // many are open. Prefer the live count, fall back to the published one so
-    // the cards never read "0 issues".
-    openIssues: issuesRes.total_count || FREEbuff.openIssues,
-    prs: prsRes.total_count || FREEbuff.prs,
+    openIssues: issuesRes.total_count,
+    prs: prsRes.total_count,
     size: `${repoRaw.size} kB`,
     defaultBranch: repoRaw.default_branch,
     htmlUrl: repoRaw.html_url,
@@ -339,10 +315,7 @@ export function fetchFreebuffData(page = 1, perPage = 100): Promise<FreebuffPayl
   if (cached) return Promise.resolve(cached);
   inflight ??= fetchFreebuffDataOnce(page, perPage)
     .then((d) => {
-      // getJson no longer rejects, so this always resolves. Only a batch that
-      // actually reached GitHub is persisted — otherwise a throttled empty
-      // result would be cached for 30 minutes.
-      if (d.files.length || d.issues.items.length || d.prs.items.length) persist(d);
+      persist(d);
       cached = d;
       return d;
     })
