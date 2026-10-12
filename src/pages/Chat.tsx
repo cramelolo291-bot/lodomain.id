@@ -1,41 +1,30 @@
-// Public, discussion-style view of the open issues and pull requests in the
+// Signed-in, discussion-style view of the open issues and pull requests in the
 // upstream browser-agent repo.
 //
-// This is a chat UI, but the audience is the open thread, not a signed-in user.
+// This is a read-only discussion UI; it does not write to the upstream repository.
 // Each issue or PR is a thread you can browse; the list is filtered by the
-// search box, and clicking one opens the thread detail. The page is public and
-// read-only: no auth, no writes, no writes to the backend, no repo source
+// search box, and clicking one opens the thread detail. The page is read-only and
+// uses the live GitHub API; it does not write to the backend or repo source
 // folder access, and no dependency on the existing api.ts seam.
 //
 // All data is pulled from the GitHub REST API.
 
 import { useMemo, useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { AppShell } from "@/components/AppShell";
 import {
   ArrowRight,
   Check,
   ChevronDown,
-  ChevronRight,
   Code2,
   GitBranch,
   GitPullRequest,
   MessageSquare,
   Search,
-  Sparkles,
   TrendingUp,
 } from "lucide-react";
 import type { FreebuffIssue, FreebuffPr } from "@/lib/frebbuff-data";
 import { fetchFreebuffData, sortIssues, sortPrs } from "@/lib/frebbuff-data";
-
-// Stub data mirroring the public repo summary, so the page renders at first
-// paint. The fetch below refreshes the live numbers from GitHub.
-const STATS = {
-  openIssues: 310,
-  openPrs: 113,
-  stars: 13100,
-  forks: 1399,
-};
 
 const LABEL_CLASSES: Record<string, string> = {
   bug: "bg-[#c85a50] text-white",
@@ -129,7 +118,6 @@ function renderBody(text: string): React.ReactNode {
       );
     }
     if (/^\s*#/.test(line)) {
-      const level = line.search(/\s/);
       const Tag = line.startsWith("###") ? "h3" : line.startsWith("##") ? "h2" : "h1";
       const sizeClass = line.startsWith("##") ? "sm:text-[20px]" : line.startsWith("###") ? "text-[15px]" : "text-[16px]";
       return (
@@ -294,10 +282,9 @@ function ThreadCard({ thread }: { thread: ThreadView }) {
 }
 
 export default function Chat({ threads: seeded }: Props) {
-  const navigate = useNavigate();
   const [threads, setThreads] = useState<ThreadView[]>(seeded ?? []);
   const [query, setQuery] = useState("");
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
 
   // Public route: read the open issues and PRs straight from the GitHub API.
