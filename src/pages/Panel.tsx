@@ -19,7 +19,6 @@ import {
   GitBranch,
   GitPullRequest,
   GitPullRequestClosed,
-  Handshake,
   ListTodo,
   Search,
   Star,
