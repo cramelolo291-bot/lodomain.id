@@ -300,6 +300,23 @@ export async function runBuild(
 ): Promise<BuildResult> {
   const started = Date.now();
 
+  // The runner executes project-controlled lifecycle scripts on the server's
+  // OS account. Until an isolated worker is configured, fail closed in
+  // production rather than treating environment scrubbing as a sandbox.
+  if (process.env.NODE_ENV === "production") {
+    const reason = "Build execution is disabled in production until an isolated build worker is configured.";
+    return {
+      ok: false,
+      target,
+      code: null,
+      output: reason,
+      ms: 0,
+      timedOut: false,
+      command: "",
+      skipped: reason,
+    };
+  }
+
   const unsafe = validatePaths(files);
   if (unsafe) {
     return {
@@ -319,9 +336,9 @@ export async function runBuild(
   const planned = stepsFor(target, files);
   if ("skip" in planned) {
     return {
-      ok: true,
+      ok: false,
       target,
-      code: 0,
+      code: null,
       output: planned.skip,
       ms: Date.now() - started,
       timedOut: false,
