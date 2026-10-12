@@ -54,7 +54,7 @@ export default function ModulePage({ module }: { module: string }) {
           <p className="eyebrow mt-8">LOLODOMAIN.ID / {item.category}</p>
           <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-[680px]"><h1 className="display text-[clamp(34px,5vw,52px)] leading-tight text-ink-1">{item.name}</h1><p className="mt-4 text-[14px] leading-7 text-ink-3">{item.description}</p></div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-[10px] text-amber-600"><CircleDashed className="size-3.5" /> {status.replaceAll("_", " ").toUpperCase()}</span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-[10px] text-amber-600"><CircleDashed className="size-3.5" /> {status.replace(/_/g, " ").toUpperCase()}</span>
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
