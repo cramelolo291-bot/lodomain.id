@@ -1,6 +1,7 @@
 import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { RequireAdmin } from "@/components/RequireAdmin";
 import { Intro, shouldPlay } from "@/components/Intro";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import React, { StrictMode, useCallback, useEffect, useState, lazy, Suspense } from "react";
@@ -44,33 +45,29 @@ function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/auth" element={<AuthPage redirectAfterAuth="/web" />} />
 
-            {/* Existing Lolo AI pages */}
-            <Route path="/web/" element={<Web />} />
-            <Route path="/web/:id" element={<Web />} />
-            <Route path="/chat/" element={<Chat />} />
-            <Route path="/chat/:id" element={<Chat />} />
-            <Route path="/panel/" element={<Panel />} />
-            <Route path="/dashboard/" element={<Dashboard />} />
-            <Route path="/studio/" element={<Studio />} />
-            <Route path="/projects/" element={<Projects />} />
+            {/* Public read-only reference dashboards */}
+            <Route path="/panel" element={<Panel />} />
+            <Route path="/dashboard" element={<Dashboard />} />
 
-            {/* Modular workspace and dedicated upstream tool pages */}
-            <Route path="/integrations" element={<Integrations />} />
-            <Route path="/messages" element={<ModulePage module="messages" />} />
-            <Route path="/browser" element={<ModulePage module="browser" />} />
-            <Route path="/security" element={<ModulePage module="security" />} />
-            <Route path="/cloud" element={<ModulePage module="cloud" />} />
-            <Route path="/reverse-engineering" element={<ModulePage module="reverse-engineering" />} />
-            <Route path="/deploy" element={<ModulePage module="deploy" />} />
-            <Route path="/design" element={<ModulePage module="design" />} />
-
-            {/* Authenticated product routes */}
+            {/* Signed-in workspace routes */}
             <Route path="/chat" element={<RequireAuth><Chat /></RequireAuth>} />
             <Route path="/chat/:id" element={<RequireAuth><Chat /></RequireAuth>} />
             <Route path="/web" element={<RequireAuth><Web /></RequireAuth>} />
             <Route path="/web/:id" element={<RequireAuth><Web /></RequireAuth>} />
-            <Route path="/server" element={<RequireAuth><Server /></RequireAuth>} />
-            <Route path="/infrastructure" element={<RequireAuth><Infrastructure /></RequireAuth>} />
+            <Route path="/studio" element={<RequireAuth><Studio /></RequireAuth>} />
+            <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
+            <Route path="/integrations" element={<RequireAuth><Integrations /></RequireAuth>} />
+            <Route path="/messages" element={<RequireAuth><ModulePage module="messages" /></RequireAuth>} />
+            <Route path="/browser" element={<RequireAuth><ModulePage module="browser" /></RequireAuth>} />
+            <Route path="/security" element={<RequireAuth><ModulePage module="security" /></RequireAuth>} />
+            <Route path="/cloud" element={<RequireAuth><ModulePage module="cloud" /></RequireAuth>} />
+            <Route path="/reverse-engineering" element={<RequireAuth><ModulePage module="reverse-engineering" /></RequireAuth>} />
+            <Route path="/deploy" element={<RequireAuth><ModulePage module="deploy" /></RequireAuth>} />
+            <Route path="/design" element={<RequireAuth><ModulePage module="design" /></RequireAuth>} />
+
+            {/* Admin-only operations */}
+            <Route path="/server" element={<RequireAdmin><Server /></RequireAdmin>} />
+            <Route path="/infrastructure" element={<RequireAdmin><Infrastructure /></RequireAdmin>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
