@@ -83,8 +83,8 @@ VITE_API_URL=http://localhost:8787
 The checked-in `.env.example` supplies a loopback-only development database URL,
 but the server itself now requires `DATABASE_URL` to be explicitly present; it
 never silently falls back to a predictable credential. In production, set a
-strong unique database password, the real `APP_URL`, `ADMIN_EMAILS`, and
-`RESEND_API_KEY`.
+strong unique database password, the real `APP_URL`, `ALLOWED_EMAILS`,
+`ADMIN_EMAILS`, and `RESEND_API_KEY`.
 Without `RESEND_API_KEY`, login links are written to server logs, so do not use
 that fallback on a public production deployment.
 
@@ -112,10 +112,12 @@ bun run dev:full
 Then open <http://localhost:5173>.
 
 In development and tests, the first account can bootstrap the **admin**. In
-production, the first signup is always a regular user; set `ADMIN_EMAILS` to a
-comma-separated allowlist of the exact email addresses allowed to administer
-the deployment. Existing allowlisted users are promoted on their next sign-in.
-Without an allowlist, no new production account can become admin.
+production, sign-in is closed by default. Set `ALLOWED_EMAILS` to a comma-separated
+allowlist of exact addresses that may sign in, and set `ADMIN_EMAILS` to the
+subset allowed to administer the deployment. Admin addresses are allowed to sign
+in even if omitted from `ALLOWED_EMAILS`. Allowlist changes are enforced on sign-in
+and session checks; removing an address from `ADMIN_EMAILS` demotes its admin role.
+Without either allowlist, no production account can sign in or become admin.
 
 ## Ollama sizing
 
