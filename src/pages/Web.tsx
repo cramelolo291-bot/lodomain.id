@@ -21,17 +21,6 @@ import {
   TrendingUp,
 } from "lucide-react";
 
-const LABEL_COLORS: Record<string, string> = {
-  bug: "bg-[#c85a50] text-white",
-  enhancement: "bg-[#4aa06e] text-white",
-  documentation: "bg-[#5a6b7a] text-white",
-  goodFirstIssue: "bg-[rgba(74,160,110,0.16)] text-[#4aa06e]",
-  helpWanted: "bg-[rgba(157,180,168,0.16)] text-[#9db4a8]",
-  question: "bg-[rgba(200,90,80,0.14)] text-[#c85a50]",
-  maintenance: "bg-[#5a6b7a] text-white",
-  hacktoberfest: "bg-[#b388ff] text-white",
-};
-
 import { useEffect, useState, useMemo } from "react";
 import { fetchFreebuffData, sortIssues, sortPrs } from "@/lib/frebbuff-data";
 
