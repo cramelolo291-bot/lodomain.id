@@ -3,6 +3,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import {
   Activity,
+  Blocks,
   BarChart3,
   FolderKanban,
   Globe,
@@ -151,7 +152,7 @@ export function AppShell({
               </span>
             </NavLink>
             <span className="hidden h-5 w-px bg-line sm:block" />
-            <nav className="hidden items-center gap-1 sm:flex">
+            <nav className="hidden max-w-[min(62vw,900px)] items-center gap-1 overflow-x-auto sm:flex">
               {/* These point at the public, trailing-slash routes. The
                   slashless `/web` and `/chat` are the RequireAuth-protected
                   duplicates, so linking there bounced signed-out visitors to
@@ -164,6 +165,7 @@ export function AppShell({
               <NavItem to="/projects/" icon={FolderKanban} label="Projects" />
               <NavItem to="/server" icon={Server} label="Server" />
               <NavItem to="/infrastructure" icon={ShieldCheck} label="Infrastructure" />
+              <NavItem to="/integrations" icon={Blocks} label="Modules" />
             </nav>
           </div>
 
