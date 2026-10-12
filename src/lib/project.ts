@@ -158,11 +158,10 @@ export function runCommand(
     case "tsc":
     case "bun":
     case "npm": {
-      // Only typecheck is simulated; everything else is reported as unrun.
-      if (bin === "tsc") return { out: ["✓ 0 errors"], code: 0 };
-      if (bin === "npm" || bin === "bun")
-        return { out: [`${bin}: command not run in preview`], code: 1 };
-      return { out: ["usage: tsc | ls | cat | wc"], code: 1 };
+      return {
+        out: [`${bin}: not executed in the mock preview terminal; use the real build runner for verification`],
+        code: 1,
+      };
     }
 
     default:
