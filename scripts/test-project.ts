@@ -2,7 +2,8 @@
 // space the same way the Data panel does. Verifies the two are actually wired
 // together and not just each working in isolation.
 
-import { api } from "../src/lib/api";
+process.env.VITE_API_MODE = "mock";
+const { api } = await import("../src/lib/api");
 
 // jsdom-free stub: the mock backend only touches localStorage.
 const mem = new Map<string, string>();
