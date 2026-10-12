@@ -599,6 +599,14 @@ section("module configuration");
     check("remote HTTP endpoint is rejected", status === 400, String(status));
   });
 
+  await test("rejects endpoint URLs containing embedded credentials", async () => {
+    const { status } = await call("/api/modules/cloud", {
+      method: "PUT",
+      body: JSON.stringify({ endpointUrl: "https://user:secret@cloud.example.test/api", enabled: true }),
+    });
+    check("credential-bearing endpoint is rejected", status === 400, String(status));
+  });
+
   await test("removes module configuration", async () => {
     const { status } = await call("/api/modules/cloud", { method: "DELETE" });
     check("delete is 200", status === 200, String(status));
