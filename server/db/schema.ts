@@ -11,7 +11,6 @@
 
 import { relations, sql } from "drizzle-orm";
 import {
-  bigint,
   boolean,
   index,
   integer,
