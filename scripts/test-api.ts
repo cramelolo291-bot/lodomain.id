@@ -701,6 +701,35 @@ section("panel");
   });
 }
 
+// ── Shared LLM router authentication ───────────────────────────────────────
+section("shared llm router access control");
+{
+  await test("model catalogue rejects anonymous callers", async () => {
+    const savedCookie = cookie;
+    cookie = "";
+    const { status } = await call("/llm/v1/models");
+    cookie = savedCookie;
+    check("anonymous model list is 401", status === 401, `${status}`);
+  });
+
+  await test("chat completions rejects anonymous callers before upstream work", async () => {
+    const savedCookie = cookie;
+    cookie = "";
+    const { status } = await call("/llm/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
+    });
+    cookie = savedCookie;
+    check("anonymous completion is 401", status === 401, `${status}`);
+  });
+
+  await test("signed-in users can read the model catalogue", async () => {
+    const { status, body } = await call("/llm/v1/models");
+    check("authenticated model list is 200", status === 200, `${status}`);
+    check("catalogue is a real list", body?.object === "list" && Array.isArray(body?.data));
+  });
+}
+
 // ── OpenAI-compatible surface ──────────────────────────────────────────────
 
 section("openai-compatible api");
