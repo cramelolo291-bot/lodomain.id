@@ -737,6 +737,15 @@ section("shared llm router access control");
     check("invalid payload is 400", status === 400, `${status}`);
     check("error identifies invalid chat request", /Invalid chat request/.test(body?.error?.message ?? ""));
   });
+
+  await test("unsupported streaming is rejected instead of silently returning JSON", async () => {
+    const { status, body } = await call("/llm/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ messages: [{ role: "user", content: "hello" }], stream: true }),
+    });
+    check("stream request is 400", status === 400, `${status}`);
+    check("response names the unsupported behavior", /Streaming is not supported/.test(body?.error?.message ?? ""));
+  });
 }
 
 // ── OpenAI-compatible surface ──────────────────────────────────────────────
