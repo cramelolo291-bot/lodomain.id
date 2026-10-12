@@ -92,10 +92,16 @@ export function runCommand(input: string, files: Tree): CommandResult {
       if (paths.length === 0) return { out: ["(empty)"], code: 0 };
       const tree = buildTree(paths);
       out.push(".");
-      for (const p of paths) {
-        const depth = p.split("/").length - 1;
-        out.push(`${"│  ".repeat(depth)}├─ ${p.split("/").pop()}`);
-      }
+      const print = (dir: string, prefix: string) => {
+        const children = [...(tree.get(dir) ?? [])].sort();
+        children.forEach((name, index) => {
+          const last = index === children.length - 1;
+          out.push(`${prefix}${last ? "└─" : "├─"} ${name}`);
+          const childPath = dir ? `${dir}/${name}` : name;
+          if (tree.has(childPath)) print(childPath, `${prefix}${last ? "   " : "│  "}`);
+        });
+      };
+      print("", "");
       out.push("", `${paths.length} files`);
       return { out, code: 0 };
     }
