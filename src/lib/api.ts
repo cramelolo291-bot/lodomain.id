@@ -1259,12 +1259,14 @@ function httpApi() {
 }
 
 /**
- * `mock` keeps the preview explorable with no server attached. Set
- * `VITE_API_MODE=http` once the Hono + PostgreSQL server is running and the
- * whole app talks to the real database instead.
+ * Production and normal development use the real HTTP backend by default.
+ * The mock is only available as an explicit development-only opt-in; a
+ * production build can never silently present seeded data as live state.
  */
-export const api: Api =
-  import.meta.env?.VITE_API_MODE === "http" ? httpApi() : mockApi();
+const useMockApi =
+  import.meta.env?.DEV === true && import.meta.env?.VITE_API_MODE === "mock";
+
+export const api: Api = useMockApi ? mockApi() : httpApi();
 
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn);
