@@ -147,7 +147,7 @@ export function AppShell({
               <Logo />
               <span className="flex flex-col leading-none">
                 <span className="text-[14px] font-medium tracking-tight text-ink-1">
-                  Lolo AI
+                  LOLODOMAIN.ID
                 </span>
                 <span className="mono-label mt-1 text-[9px]">AGENT WORKSPACE</span>
               </span>
