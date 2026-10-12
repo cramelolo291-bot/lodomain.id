@@ -153,14 +153,6 @@ async function getJson<T>(url: string): Promise<T | null> {
   }
 }
 
-function prUrl(repo: string, number: number): string {
-  return `https://github.com/${repo}/pull/${number}`;
-}
-
-function issueUrl(repo: string, number: number): string {
-  return `https://github.com/${repo}/issues/${number}`;
-}
-
 /** Pull every open issue and open PR in one go. GitHub returns a single page
  *  of up to 100 items, so this pages through pages 1..5 for the 113 PRs we
  *  expect. */
