@@ -11,6 +11,7 @@ import { db, type Db } from "../db/client";
 import { sessions, users } from "../db/schema";
 import { env, isProd } from "../env";
 import { generateToken, hashToken } from "./tokens";
+import { isAllowedLoginEmail } from "./magic-link";
 
 export type Session = {
   userId: string;
@@ -115,6 +116,11 @@ export async function sessionFromCookieHeader(
 
   const row = rows[0];
   if (!row) return null;
+  if (!isAllowedLoginEmail(row.email)) {
+    // Remove the session so a later allowlist change cannot revive it.
+    await db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)));
+    return null;
+  }
 
   return {
     userId: row.userId,
