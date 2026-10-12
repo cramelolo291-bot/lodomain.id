@@ -8,7 +8,7 @@
 // Skips with a reason when dist/ is missing, so `bun test` does not require a
 // build to have happened first.
 
-import { access, readdir } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 let pass = 0;
@@ -43,6 +43,28 @@ async function test(label: string, fn: () => Promise<void>) {
     );
   }
 }
+
+// ── No fake live data ──────────────────────────────────────────────────────
+section("live data is never replaced with a success-shaped fixture");
+
+await test("HTTP backend is the default and mock is opt-in", async () => {
+  const source = await readFile("src/lib/api.ts", "utf8");
+  check("default API selection uses HTTP", /export const api: Api = useMockApi \? mockApi\(\) : httpApi\(\)/.test(source));
+  check("mock mode requires explicit non-production opt-in", /apiMode === "mock" && !productionBuild/.test(source));
+});
+
+await test("public repository pages have no hardcoded live metrics fallback", async () => {
+  const [dataLayer, web, dashboard, panel] = await Promise.all([
+    readFile("src/lib/frebbuff-data.ts", "utf8"),
+    readFile("src/pages/Web.tsx", "utf8"),
+    readFile("src/pages/Dashboard.tsx", "utf8"),
+    readFile("src/pages/Panel.tsx", "utf8"),
+  ]);
+  check("data layer throws when live upstream data is missing", dataLayer.includes("No cached fixture was substituted"));
+  check("repo browser does not substitute a static repository", !web.includes("FREEbuff") && !web.includes("STATIC_REPO"));
+  check("analytics does not contain a static metrics object", !dashboard.includes("const STATIC") && !dashboard.includes("FREEbuff."));
+  check("issues panel does not contain static counts", !panel.includes("STATIC_COUNTS"));
+});
 
 // Must be set before anything imports server/env.
 process.env.NODE_ENV = "production";
