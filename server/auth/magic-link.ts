@@ -190,8 +190,8 @@ export async function consumeMagicLink(token: string): Promise<Verified> {
     };
   }
 
-  // First sign-in for this address. The first account on a fresh install is
-  // the admin; everyone after is a regular user.
+  // First sign-in for this address. First-user admin bootstrap is limited
+  // to development/tests; production requires an explicit administrator allowlist.
   const { count } = await db
     .select({ count: users.id })
     .from(users)
