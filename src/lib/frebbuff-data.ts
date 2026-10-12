@@ -98,34 +98,10 @@ export type FreebuffGithubResponse = {
   items: Array<FreebuffIssue | FreebuffPr | Record<string, unknown>>;
 };
 
-// ── Plucked from the GitHub API at build time ─────────────────────────────
-
-/**
- * The upstream repository these pages describe. Every endpoint in this module
- * is built from this, so pointing the pages at a different repo is a one-line
- * change here rather than an edit across the four pages.
- */
+// Public upstream repository identity. Metrics and files are fetched live below.
 export const REPO_SLUG = "browser-use/jev-ultrafast" as const;
 const API = `https://api.github.com/repos/${REPO_SLUG}`;
 const WEB = `https://github.com/${REPO_SLUG}`;
-
-export const FREEbuff: FreebuffRepo = {
-  owner: "browser-use",
-  repo: "jev-ultrafast",
-  name: "Jev Ultrafast",
-  blog: "https://browser-use.com",
-  email: "",
-  bio: "A browser agent with a dynamic, indexed action space",
-  stars: 21823,
-  forks: 1552,
-  openIssues: 40,
-  prs: 142,
-  size: "4.4 MB",
-  defaultBranch: "main",
-  htmlUrl: WEB,
-  description:
-    "A browser agent with a dynamic, indexed action space: give it one goal and it picks an operation and an element, writing text only when the operation is TYPE_TEXT. Public data about the repo and its open issues/PRs is served from these pages.",
-};
 
 /** Tabular view of the open issues, used to render the issue list. */
 export type IssueView = {
