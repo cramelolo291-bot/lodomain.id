@@ -160,6 +160,8 @@ list. That prefix is not enough to use the key.
 
 A database dump contains no usable credential. Rotate anything that leaks.
 
+Never commit `.env`, `.env.keys`, or encrypted environment files. If a dotenv private key was committed in an earlier revision, deleting the file in a new commit is not enough: rotate the key and purge the leaked value from repository history before treating it as resolved.
+
 ## Switching the UI to the real backend
 
 The frontend runs against an in-browser mock by default so it is explorable
