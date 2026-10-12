@@ -92,7 +92,7 @@ export default function Landing() {
               <div className="rounded-2xl border border-white/10 bg-white/[.045] p-4"><p className="font-mono text-[9px] tracking-widest text-white/45">ACCESS CONTROL</p><p className="mt-3 text-3xl font-semibold">RBAC</p><p className="mt-1 text-xs text-white/50">Izin berbasis peran</p></div>
             </div>
             <div className="space-y-2">
-              {modules.slice(0, 4).map((item, i) => {
+              {modules.slice(0, 4).map((item) => {
                 const Icon = item.icon;
                 return <Link to={item.route} key={item.route} className="group flex items-center gap-3 rounded-xl border border-white/[.07] bg-white/[.025] p-3 transition duration-300 hover:translate-x-1 hover:border-white/20 hover:bg-white/[.06]">
                   <span className="flex size-9 items-center justify-center rounded-lg bg-white/[.06]"><Icon size={16} className={item.tone} /></span>
