@@ -12,7 +12,7 @@
 // `in_flight` is incremented and decremented in SQL. If a process dies
 // mid-request the counter is wrong, so `resetOrphans` repairs it on boot.
 
-import { and, asc, desc, eq, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { pool, type Db } from "../db/client";
 import { poolAccounts, usageEvents } from "../db/schema";
 import { env } from "../env";
