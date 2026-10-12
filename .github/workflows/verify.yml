@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
 
+# Verification covers the real backend, access-control guards, and production build.
+
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
