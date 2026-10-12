@@ -110,10 +110,13 @@ try {
   check("embedded endpoint credentials are refused", credentials.status === 400, String(credentials.status));
 
   const second = await signIn("second@example.test");
+  const secondMe = await request("/me", second);
+  check("second cookie resolves to the second account", secondMe.body?.email === "second@example.test", JSON.stringify(secondMe));
   const secondCatalog = await request("/api/modules", second);
+  check("second account can read its own catalog", secondCatalog.status === 200, JSON.stringify(secondCatalog));
   const secondBrowser = secondCatalog.body?.items?.find((item: any) => item.key === "browser");
-  check("another user cannot see the first user's endpoint", secondBrowser?.endpointUrl === null);
-  check("another user has independent defaults", secondBrowser?.status === "not_configured" && secondBrowser?.enabled === false);
+  check("another user cannot see the first user's endpoint", secondBrowser?.endpointUrl === null, JSON.stringify(secondBrowser));
+  check("another user has independent defaults", secondBrowser?.status === "not_configured" && secondBrowser?.enabled === false, JSON.stringify(secondBrowser));
 
   const disabled = await request("/api/modules/browser", first, {
     method: "PUT",
