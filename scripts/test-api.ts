@@ -728,6 +728,15 @@ section("shared llm router access control");
     check("authenticated model list is 200", status === 200, `${status}`);
     check("catalogue is a real list", body?.object === "list" && Array.isArray(body?.data));
   });
+
+  await test("invalid chat payloads are rejected before upstream calls", async () => {
+    const { status, body } = await call("/llm/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ messages: [] }),
+    });
+    check("invalid payload is 400", status === 400, `${status}`);
+    check("error identifies invalid chat request", /Invalid chat request/.test(body?.error?.message ?? ""));
+  });
 }
 
 // ── OpenAI-compatible surface ──────────────────────────────────────────────
