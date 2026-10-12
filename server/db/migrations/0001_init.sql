@@ -21,6 +21,27 @@ create table users (
 -- Case-insensitive: "Lolo@x.com" and "lolo@x.com" are the same account.
 create unique index users_email_idx on users (lower(email));
 
+-- Module metadata only; secrets remain in a dedicated secret store.
+create table module_connections (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references users(id) on delete cascade,
+  module_key text not null check (module_key in (
+    'messages', 'browser', 'security', 'cloud', 'reverse-engineering', 'deploy', 'design'
+  )),
+  display_name text not null,
+  enabled boolean not null default false,
+  status text not null default 'not_configured' check (
+    status in ('not_configured', 'pending', 'healthy', 'degraded', 'disabled')
+  ),
+  endpoint_url text,
+  last_checked_at timestamptz,
+  last_error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint module_connections_owner_key_unique unique (owner_id, module_key)
+);
+create index module_connections_owner_idx on module_connections (owner_id, updated_at desc);
+
 create table sessions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users(id) on delete cascade,
