@@ -68,6 +68,7 @@ const expected = [
   "guardrail_hits",
   "magic_links",
   "messages",
+  "module_connections",
   "pool_accounts",
   "project_columns",
   "project_files",
