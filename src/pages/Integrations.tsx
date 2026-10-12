@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Link } from "react-router";
 import {
@@ -16,6 +17,27 @@ const modules = [
 ];
 
 export default function Integrations() {
+  const [moduleStatuses, setModuleStatuses] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/modules", { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(response.status === 401 ? "login_required" : "unavailable");
+        return response.json();
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        setModuleStatuses(Object.fromEntries(payload.items.map((item: { key: string; status: string }) => [item.key, item.status])));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const status = error instanceof Error && error.message === "login_required" ? "login_required" : "unavailable";
+        setModuleStatuses(Object.fromEntries(modules.map((item) => [item.id, status])));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <AppShell>
       <div className="h-full overflow-y-auto">
@@ -37,7 +59,10 @@ export default function Integrations() {
                   <div aria-hidden className="pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-ember/5 blur-3xl transition-colors duration-500 group-hover:bg-ember/10" />
                   <div className="relative flex items-start justify-between gap-3">
                     <span className="flex size-10 items-center justify-center rounded-xl border border-line bg-surface-2"><Icon className={`size-[18px] ${item.accent}`} /></span>
-                    <span className="rounded-full border border-line px-2 py-1 font-mono text-[9px] tracking-wider text-ink-4">{item.category}</span>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <span className="rounded-full border border-line px-2 py-1 font-mono text-[9px] tracking-wider text-ink-4">{item.category}</span>
+                      <span className="rounded-full border border-line bg-surface-2/70 px-2 py-1 font-mono text-[9px] tracking-wider text-ink-3">{(moduleStatuses[item.id] ?? "loading").replaceAll("_", " ").toUpperCase()}</span>
+                    </div>
                   </div>
                   <h2 className="relative mt-5 text-[17px] font-medium tracking-tight text-ink-1">{item.name}</h2>
                   <p className="relative mt-2 flex-1 text-[12.5px] leading-6 text-ink-3">{item.description}</p>
