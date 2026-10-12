@@ -180,7 +180,7 @@ function buildNode(tokens: Token[], start: number): { node: Node; next: number }
     const restOfTag = tagRe[2] ?? "";
 
     const attrs = new Map<string, string>();
-    const attrRe = /([a-zA-Z_:][a-zA-Z0-9_:.-]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))/g;
+    const attrRe = /([a-zA-Z_:][a-zA-Z0-9_:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
     let attrMatch: RegExpExecArray | null;
     attrRe.lastIndex = 0;
     while ((attrMatch = attrRe.exec(restOfTag)) !== null) {
