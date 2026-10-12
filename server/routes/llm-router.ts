@@ -12,6 +12,7 @@
 // absent the router degrades to local models rather than failing.
 
 import { Hono } from "hono";
+import { requireAuth } from "../auth/session";
 
 export type ProviderId = "ollama" | "openrouter";
 
@@ -260,6 +261,11 @@ export async function routeChat(
 /** The HTTP surface: an OpenAI-compatible /v1/chat/completions. */
 export function llmRouter(configFromEnv: () => RouterConfig) {
   const app = new Hono();
+
+  // This router can spend the server owner's provider quota. Never expose it
+  // anonymously; browser sessions are required, while external SDK clients use
+  // the separately API-key-authenticated /v1 surface.
+  app.use("*", requireAuth);
 
   app.get("/v1/models", (c) => {
     const cfg = configFromEnv();
