@@ -33,11 +33,12 @@ export default function Projects() {
     return () => { dead = true; };
   }, []);
 
-  // Refresh artifacts when the tab becomes visible, so files the chat writes
-  // in another tab show up here without a manual reload.
-  useEffect(() => {
-    if (tab === "artifacts") setArts(listArtifacts());
-  }, [tab]);
+
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    if (next === "artifacts") setArts(listArtifacts());
+  }
 
   async function open(path: string) {
     setOpenPath(path);
@@ -135,7 +136,7 @@ export default function Projects() {
               <button
                 key={t}
                 type="button"
-                onClick={() => setTab(t)}
+                onClick={() => selectTab(t)}
                 className={`rounded-[9px] px-3 py-1.5 font-mono text-[12px] transition-colors ${
                   tab === t ? "bg-surface-3 text-ink-1" : "text-ink-4 hover:text-ink-2"
                 }`}
