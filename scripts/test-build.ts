@@ -63,6 +63,35 @@ function probeProject(script: string, deps: Record<string, string> = {}) {
   };
 }
 
+section("production build execution fails closed without a sandbox");
+await test("runBuild refuses production execution before spawning a process", async () => {
+  const previous = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = "production";
+    const result = await runBuild("runner-probe", probeProject("node -e 'process.exit(0)'"), "build");
+    check("production build is not reported as successful", !result.ok);
+    check("no command was started", result.command === "");
+    check("reason names the missing isolated worker", /isolated build worker/.test(result.skipped ?? ""));
+  } finally {
+    if (previous === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previous;
+  }
+});
+
+await test("startDev refuses production execution before spawning a process", async () => {
+  const { startDev } = await import("../server/build/dev");
+  const previous = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = "production";
+    const result = await startDev("runner-probe", { "package.json": JSON.stringify({ scripts: { dev: "node -e 'process.exit(0)'" } }) });
+    check("production dev server is refused", !result.ok);
+    check("reason names the missing isolated worker", !result.ok && /isolated worker/.test(result.reason));
+  } finally {
+    if (previous === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previous;
+  }
+});
+
 // A secret that only ever exists in the server's own environment. If it shows up
 // in a child's output, the runner leaked it.
 process.env.LOLO_TEST_SECRET = "sk-lolo-must-not-leak-9f3a";
