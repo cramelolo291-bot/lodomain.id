@@ -1,7 +1,9 @@
+import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireAuth } from "../auth/session";
-import { pool } from "../db/client";
+import { db } from "../db/client";
+import { moduleConnections } from "../db/schema";
 import { body } from "../http/validate";
 
 export const modules = new Hono();
@@ -42,23 +44,11 @@ function safeEndpoint(value: string | null | undefined) {
 
 modules.get("/modules", async (c) => {
   const { userId } = c.get("session");
-  const rows = await pool<{
-    module_key: string;
-    display_name: string;
-    enabled: boolean;
-    status: string;
-    endpoint_url: string | null;
-    last_checked_at: Date | null;
-    last_error_code: string | null;
-    updated_at: Date;
-  }[]> `
-    select module_key, display_name, enabled, status, endpoint_url,
-           last_checked_at, last_error_code, updated_at
-    from module_connections
-    where owner_id = ${userId}
-    order by updated_at desc
-  `;
-  const byKey = new Map(rows.map((row) => [row.module_key, row]));
+  const rows = await db.select().from(moduleConnections)
+    .where(eq(moduleConnections.ownerId, userId))
+    .orderBy(desc(moduleConnections.updatedAt));
+  const byKey = new Map(rows.map((row) => [row.moduleKey, row]));
+
   return c.json({
     items: catalog.map((item) => {
       const row = byKey.get(item.key);
@@ -66,10 +56,10 @@ modules.get("/modules", async (c) => {
         ...item,
         enabled: row?.enabled ?? false,
         status: row?.status ?? "not_configured",
-        endpointUrl: row?.endpoint_url ?? null,
-        lastCheckedAt: row?.last_checked_at?.toISOString() ?? null,
-        lastErrorCode: row?.last_error_code ?? null,
-        updatedAt: row?.updated_at?.toISOString() ?? null,
+        endpointUrl: row?.endpointUrl ?? null,
+        lastCheckedAt: row?.lastCheckedAt?.toISOString() ?? null,
+        lastErrorCode: row?.lastErrorCode ?? null,
+        updatedAt: row?.updatedAt?.toISOString() ?? null,
       };
     }),
     executionEnabled: false,
@@ -91,43 +81,41 @@ modules.put("/modules/:key", async (c) => {
   }
 
   const item = catalog.find((entry) => entry.key === parsedKey.data)!;
-  const existing = await pool<{ id: string }[]> `
-    select id from module_connections
-    where owner_id = ${userId} and module_key = ${item.key}
-    limit 1
-  `;
+  const existing = await db.select({ id: moduleConnections.id, status: moduleConnections.status })
+    .from(moduleConnections)
+    .where(and(eq(moduleConnections.ownerId, userId), eq(moduleConnections.moduleKey, item.key)))
+    .limit(1);
 
-  const enabled = input.enabled;
-  const status = enabled === false ? "disabled" : "pending";
+  const nextStatus = input.enabled === false
+    ? "disabled"
+    : input.enabled === true || endpointUrl !== undefined
+      ? "pending"
+      : existing[0]?.status ?? "not_configured";
+
   if (existing.length) {
-    await pool `
-      update module_connections
-      set display_name = ${item.name},
-          enabled = coalesce(${enabled ?? null}, enabled),
-          endpoint_url = case when ${endpointUrl === undefined} then endpoint_url else ${endpointUrl ?? null} end,
-          status = case when ${enabled === false} then 'disabled'
-                        when ${enabled === true} then 'pending'
-                        when ${endpointUrl !== undefined} then 'pending'
-                        else status end,
-          last_error_code = null,
-          updated_at = now()
-      where owner_id = ${userId} and module_key = ${item.key}
-    `;
+    await db.update(moduleConnections).set({
+      displayName: item.name,
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(endpointUrl !== undefined ? { endpointUrl } : {}),
+      status: nextStatus,
+      lastErrorCode: null,
+      updatedAt: new Date(),
+    }).where(and(eq(moduleConnections.ownerId, userId), eq(moduleConnections.moduleKey, item.key)));
   } else {
-    await pool `
-      insert into module_connections
-        (owner_id, module_key, display_name, enabled, status, endpoint_url)
-      values (
-        ${userId}, ${item.key}, ${item.name}, ${enabled ?? false},
-        ${enabled ? "pending" : "not_configured"}, ${endpointUrl ?? null}
-      )
-    `;
+    await db.insert(moduleConnections).values({
+      ownerId: userId,
+      moduleKey: item.key,
+      displayName: item.name,
+      enabled: input.enabled ?? false,
+      status: nextStatus,
+      endpointUrl: endpointUrl ?? null,
+    });
   }
 
   return c.json({
     ok: true,
     module: item.key,
-    status: enabled === false ? "disabled" : enabled === true || endpointUrl ? "pending" : "not_configured",
+    status: nextStatus,
     executionEnabled: false,
     note: "Saved configuration metadata only; no external service was contacted or launched.",
   });
@@ -137,9 +125,8 @@ modules.delete("/modules/:key", async (c) => {
   const { userId } = c.get("session");
   const parsedKey = moduleKey.safeParse(c.req.param("key"));
   if (!parsedKey.success) return c.json({ error: { message: "Unknown module." } }, 404);
-  await pool `
-    delete from module_connections
-    where owner_id = ${userId} and module_key = ${parsedKey.data}
-  `;
+  await db.delete(moduleConnections).where(
+    and(eq(moduleConnections.ownerId, userId), eq(moduleConnections.moduleKey, parsedKey.data)),
+  );
   return c.json({ ok: true, module: parsedKey.data, status: "not_configured" });
 });
