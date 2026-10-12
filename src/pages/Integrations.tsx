@@ -61,7 +61,7 @@ export default function Integrations() {
                     <span className="flex size-10 items-center justify-center rounded-xl border border-line bg-surface-2"><Icon className={`size-[18px] ${item.accent}`} /></span>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                       <span className="rounded-full border border-line px-2 py-1 font-mono text-[9px] tracking-wider text-ink-4">{item.category}</span>
-                      <span className="rounded-full border border-line bg-surface-2/70 px-2 py-1 font-mono text-[9px] tracking-wider text-ink-3">{(moduleStatuses[item.id] ?? "loading").replaceAll("_", " ").toUpperCase()}</span>
+                      <span className="rounded-full border border-line bg-surface-2/70 px-2 py-1 font-mono text-[9px] tracking-wider text-ink-3">{(moduleStatuses[item.id] ?? "loading").replace(/_/g, " ").toUpperCase()}</span>
                     </div>
                   </div>
                   <h2 className="relative mt-5 text-[17px] font-medium tracking-tight text-ink-1">{item.name}</h2>
