@@ -5,6 +5,7 @@ import {
   Code2, Globe, Menu, MessageSquare, Moon, ShieldCheck, Sun, Workflow, X,
 } from "lucide-react";
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 const modules = [
@@ -16,7 +17,7 @@ const modules = [
   { route: "/deploy", label: "INFRASTRUCTURE", name: "Deploy & hosting", description: "Akses alur kerja deployment dan hosting.", source: "Railway", icon: Workflow, tone: "text-rose-500", number: "06" },
 ];
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
+function Eyebrow({ children }: { children: ReactNode }) {
   return <span className="inline-flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[.2em] text-ink-3"><span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,.8)]" />{children}</span>;
 }
 
