@@ -11,9 +11,10 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/client";
-import { apiKeys } from "../db/schema";
+import { apiKeys, users } from "../db/schema";
 import { env } from "../env";
 import { hashToken } from "../auth/tokens";
+import { isAllowedLoginEmail } from "../auth/magic-link";
 import { chat, chatStream, listModels } from "../ollama/client";
 import { MAX_MODELS, getLocalModel } from "../ollama/models";
 import { getAgent } from "../../src/lib/catalog";
@@ -33,19 +34,31 @@ async function authorise(header: string | undefined): Promise<string | null> {
 
   const hash = hashToken(secret);
   const rows = await db
-    .select({ id: apiKeys.id, userId: apiKeys.userId })
+    .select({ id: apiKeys.id, userId: apiKeys.userId, email: users.email })
     .from(apiKeys)
+    .innerJoin(users, eq(apiKeys.userId, users.id))
     .where(and(eq(apiKeys.secretHash, hash), isNull(apiKeys.revokedAt)))
     .limit(1);
 
-  if (!rows[0]) return null;
+  const key = rows[0];
+  if (!key) return null;
+
+  if (!isAllowedLoginEmail(key.email)) {
+    // An address removed from the production allowlist loses both session and
+    // SDK access. Revoke every key for that owner, not just this one.
+    await db
+      .update(apiKeys)
+      .set({ revokedAt: new Date() })
+      .where(eq(apiKeys.userId, key.userId));
+    return null;
+  }
 
   await db
     .update(apiKeys)
     .set({ lastUsedAt: new Date() })
-    .where(eq(apiKeys.id, rows[0].id));
+    .where(eq(apiKeys.id, key.id));
 
-  return rows[0].userId;
+  return key.userId;
 }
 
 /**
