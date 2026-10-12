@@ -42,3 +42,11 @@ The module registry, individual routes, source links, UI and safety notes are pr
 - Use the existing theme tokens and glass surfaces; avoid stacking blur layers or decorative cards.
 - Keep motion short and subtle, respect reduced-motion preferences, and preserve keyboard focus and contrast.
 - Keep mobile navigation reachable without horizontal page overflow. Use responsive grids instead of compressing all tools into one dense panel.
+
+## Access-control boundaries
+
+- `/api/modules` requires a valid user session and only returns that user's saved metadata.
+- `/llm/v1/*` requires a valid user session because it uses server-owned provider configuration and quota.
+- `/v1/*` is the external SDK surface and requires a valid Lolo API key.
+- Infrastructure controls remain admin-only. Module configuration does not launch services or make outbound requests.
+- CI validates code only; it does not publish the site or deploy production.
