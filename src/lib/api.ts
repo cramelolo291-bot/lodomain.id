@@ -1263,8 +1263,13 @@ function httpApi() {
  * The mock is only available as an explicit development-only opt-in; a
  * production build can never silently present seeded data as live state.
  */
-const useMockApi =
-  import.meta.env?.DEV === true && import.meta.env?.VITE_API_MODE === "mock";
+const apiMode =
+  import.meta.env?.VITE_API_MODE ??
+  (typeof process !== "undefined" ? process.env.VITE_API_MODE : undefined);
+const productionBuild =
+  import.meta.env?.PROD === true ||
+  (typeof process !== "undefined" && process.env.NODE_ENV === "production");
+const useMockApi = apiMode === "mock" && !productionBuild;
 
 export const api: Api = useMockApi ? mockApi() : httpApi();
 
