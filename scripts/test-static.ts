@@ -172,10 +172,24 @@ await test("a traversal that survives normalisation still cannot read a file", a
 section("spa history fallback");
 
 await test("a client route returns the shell, not a 404", async () => {
-  for (const path of ["/chat", "/server", "/web", "/web/abc-123", "/chat/def-456"]) {
+  for (const path of ["/", "/auth", "/panel", "/dashboard", "/chat", "/chat/def-456", "/web", "/web/abc-123", "/studio", "/projects", "/integrations", "/messages", "/browser", "/security", "/cloud", "/reverse-engineering", "/deploy", "/design", "/server", "/infrastructure"]) {
     const { status, text } = await get(path);
     check(`${path} is 200`, status === 200, `${status}`);
     check(`${path} serves the shell`, text.includes("<!doctype html"));
+  }
+});
+
+await test("every declared page route has a client-side route definition", async () => {
+  const source = await readFile("src/main.tsx", "utf8");
+  const expectedRoutes = [
+    "/", "/auth", "/panel", "/dashboard", "/chat", "/web", "/studio",
+    "/projects", "/integrations", "/messages", "/browser", "/security",
+    "/cloud", "/reverse-engineering", "/deploy", "/design", "/server",
+    "/infrastructure",
+  ];
+  for (const route of expectedRoutes) {
+    const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, "\\await test("an unknown path also returns the shell", async () => {");
+    check(`route ${route} is registered`, new RegExp(`path=["']${escaped}["']`).test(source));
   }
 });
 
