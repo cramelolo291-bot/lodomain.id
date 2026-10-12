@@ -21,7 +21,7 @@ function optional(name: string, fallback: string): string {
 function int(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
-  if (!/^-?\\d+$/.test(raw)) {
+  if (!/^-?\d+$/.test(raw)) {
     throw new Error(`${name} must be an integer, got "${raw}"`);
   }
   const n = Number(raw);
