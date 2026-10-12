@@ -106,8 +106,7 @@ What changes when you flip it:
 | Preview | local-only generated HTML | built output or live dev server in development; production project previews are blocked until isolated execution exists |
 | Data space | in memory | real tables you can edit in the panel |
 
-**If the answers still look canned, the frontend is still in mock mode.** The
-two modes are not distinguishable at a glance, which is the trap.
+Mock mode displays a persistent amber **MOCK MODE** banner in the app shell. If that banner is absent, the UI is using the real HTTP backend; an API failure is shown as an error rather than replaced with a canned answer.
 
 ## Production
 
