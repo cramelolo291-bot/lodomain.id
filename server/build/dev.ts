@@ -105,6 +105,8 @@ async function writeFiles(root: string, files: Record<string, string>) {
     const target = guarded(path);
     if (target === null) continue;
     await mkdir(dirname(target), { recursive: true });
+    const current = await readFile(target, "utf8").catch(() => null);
+    if (current === (content ?? "")) continue;
     await writeFile(target, content ?? "", "utf8");
   }
 
