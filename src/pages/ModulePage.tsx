@@ -24,7 +24,7 @@ export default function ModulePage({ module }: { module: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    if (!item) { setLoading(false); return; }
+    if (!item) return;
     fetch("/api/modules", { credentials: "include" })
       .then(async (response) => {
         if (response.status === 401) throw new Error("Login diperlukan untuk mengelola koneksi.");
