@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/AppShell";
-import { Link, useParams } from "react-router";
+import { Link } from "react-router";
 import { ArrowLeft, ArrowUpRight, CheckCircle2, CircleDashed, ExternalLink, ShieldCheck, Workflow } from "lucide-react";
 
 const modules: Record<string, { name: string; category: string; description: string; source: string; repo: string; capabilities: string[]; safety: string }> = {
@@ -12,8 +12,7 @@ const modules: Record<string, { name: string; category: string; description: str
   design: { name: "Design quality", category: "DESIGN SYSTEM", description: "Pedoman review UI untuk menekan tampilan generik, efek berlebihan, dan komponen yang tidak punya fungsi.", source: "anti-slop", repo: "https://github.com/miqdadbadjuber/anti-slop", capabilities: ["Checklist hierarki visual", "Review responsivitas dan aksesibilitas", "Pemeriksaan konsistensi komponen"], safety: "Ini adalah pedoman kualitas, bukan service runtime atau scanner yang harus dijalankan." },
 };
 
-export default function ModulePage() {
-  const { module = "" } = useParams();
+export default function ModulePage({ module }: { module: string }) {
   const item = modules[module];
   if (!item) return <AppShell><div className="mx-auto max-w-3xl px-5 py-16"><h1 className="display text-3xl text-ink-1">Module not found</h1><Link className="btn-ghost mt-5 inline-flex" to="/integrations">Back to workspace</Link></div></AppShell>;
 
