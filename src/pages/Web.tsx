@@ -16,7 +16,6 @@ import {
   GitBranch,
   GitFork,
   GitPullRequest,
-  Package,
   Search,
   Star,
   TrendingUp,
