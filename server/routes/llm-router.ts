@@ -13,6 +13,7 @@
 
 import { Hono } from "hono";
 import { requireAuth } from "../auth/session";
+import { z } from "zod";
 
 export type ProviderId = "ollama" | "openrouter";
 
@@ -28,6 +29,17 @@ export type ChatRequest = {
   max_tokens?: number;
   stream?: boolean;
 };
+
+const chatRequestSchema = z.object({
+  model: z.string().trim().min(1).max(120).optional(),
+  messages: z.array(z.object({
+    role: z.enum(["system", "user", "assistant"]),
+    content: z.string().max(64_000),
+  }).strict()).min(1).max(200),
+  temperature: z.number().min(0).max(2).optional(),
+  max_tokens: z.number().int().positive().max(32_000).optional(),
+  stream: z.boolean().optional(),
+}).strict();
 
 export type ChatChunk = {
   provider: ProviderId;
@@ -278,10 +290,25 @@ export function llmRouter(configFromEnv: () => RouterConfig) {
 
   app.post("/v1/chat/completions", async (c) => {
     const cfg = configFromEnv();
-    const body = await c.req.json<ChatRequest>();
-    if (!Array.isArray(body.messages) || body.messages.length === 0) {
-      return c.json({ error: { message: "messages[] is required" } }, 400);
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: { message: "Request body must be valid JSON" } }, 400);
     }
+    const parsed = chatRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({
+        error: {
+          message: "Invalid chat request",
+          details: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+      }, 400);
+    }
+    const body: ChatRequest = parsed.data;
     try {
       const out = await routeChat(cfg, body);
       return c.json({
