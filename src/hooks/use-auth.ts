@@ -23,9 +23,26 @@ export function useAuth() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    // The mock backend changes session in place, so it announces itself.
-    return subscribe(() => void refresh());
+    let active = true;
+    // Fetch in the promise chain so the effect itself never performs a
+    // synchronous state update. A failed real API call stays unauthenticated.
+    void api.session()
+      .then((value) => {
+        if (active) setSession(value);
+      })
+      .catch(() => {
+        if (active) setSession(null);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
+    // The explicitly enabled local mock announces session mutations.
+    const unsubscribe = subscribe(() => void refresh());
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [refresh]);
 
   const signIn = useCallback(
