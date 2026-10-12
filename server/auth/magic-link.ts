@@ -165,8 +165,23 @@ export async function consumeMagicLink(token: string): Promise<Verified> {
   const found = existing[0];
 
   if (found) {
-    // A configured administrator can be promoted on sign-in. Existing admins
-    // are never demoted just because the allowlist later changes.
+    // Production administrator privileges follow the explicit allowlist both
+    // ways: adding an address promotes it, removing one demotes it.
+    if (env.NODE_ENV === "production" && found.role === "admin" && !isConfiguredAdminEmail(found.email)) {
+      const [demoted] = await db
+        .update(users)
+        .set({ role: "user", updatedAt: new Date() })
+        .where(eq(users.id, found.id))
+        .returning();
+      if (demoted) {
+        return {
+          userId: demoted.id,
+          email: demoted.email,
+          name: demoted.name,
+          role: demoted.role,
+        };
+      }
+    }
     if (found.role !== "admin" && isConfiguredAdminEmail(found.email)) {
       const [promoted] = await db
         .update(users)
