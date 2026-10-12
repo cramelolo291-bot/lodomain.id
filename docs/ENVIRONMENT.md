@@ -78,8 +78,11 @@ VITE_API_MODE=http
 VITE_API_URL=http://localhost:8787
 ```
 
-`DATABASE_URL` has a local-development default. In production, set a strong
-unique database password, the real `APP_URL`, `ADMIN_EMAILS`, and `RESEND_API_KEY`.
+The checked-in `.env.example` supplies a loopback-only development database URL,
+but the server itself now requires `DATABASE_URL` to be explicitly present; it
+never silently falls back to a predictable credential. In production, set a
+strong unique database password, the real `APP_URL`, `ADMIN_EMAILS`, and
+`RESEND_API_KEY`.
 Without `RESEND_API_KEY`, login links are written to server logs, so do not use
 that fallback on a public production deployment.
 
