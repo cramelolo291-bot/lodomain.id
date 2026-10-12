@@ -1,6 +1,7 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
+import { isMockMode } from "@/lib/api";
 import {
   Activity,
   Blocks,
@@ -142,7 +143,7 @@ export function AppShell({
       <header className="z-30 shrink-0 px-3 pt-3 sm:px-5 sm:pt-4">
         <div className="glass mx-auto flex max-w-[1440px] items-center justify-between gap-3 py-1.5 pl-3.5 pr-1.5 shadow-[0_1px_2px_var(--shadow-soft),0_18px_40px_-28px_var(--shadow-deep)]">
           <div className="flex items-center gap-5">
-            <NavLink to="/web/" className="flex items-center gap-2.5 py-1">
+            <NavLink to="/web" className="flex items-center gap-2.5 py-1">
               <Logo />
               <span className="flex flex-col leading-none">
                 <span className="text-[14px] font-medium tracking-tight text-ink-1">
@@ -153,16 +154,14 @@ export function AppShell({
             </NavLink>
             <span className="hidden h-5 w-px bg-line sm:block" />
             <nav className="hidden max-w-[min(62vw,900px)] items-center gap-1 overflow-x-auto sm:flex">
-              {/* These point at the public, trailing-slash routes. The
-                  slashless `/web` and `/chat` are the RequireAuth-protected
-                  duplicates, so linking there bounced signed-out visitors to
-                  /auth and made the public pages unreachable from the nav. */}
-              <NavItem to="/web/" icon={Globe} label="Web" />
-              <NavItem to="/chat/" icon={MessagesSquare} label="Chat" />
-              <NavItem to="/panel/" icon={Activity} label="Panel" />
-              <NavItem to="/dashboard/" icon={BarChart3} label="Metrics" />
-              <NavItem to="/studio/" icon={Terminal} label="Studio" />
-              <NavItem to="/projects/" icon={FolderKanban} label="Projects" />
+              {/* Workspace routes are session-protected; only read-only reference
+                  dashboards are public. Use one canonical path per page. */}
+              <NavItem to="/web" icon={Globe} label="Web" />
+              <NavItem to="/chat" icon={MessagesSquare} label="Chat" />
+              <NavItem to="/panel" icon={Activity} label="Panel" />
+              <NavItem to="/dashboard" icon={BarChart3} label="Metrics" />
+              <NavItem to="/studio" icon={Terminal} label="Studio" />
+              <NavItem to="/projects" icon={FolderKanban} label="Projects" />
               <NavItem to="/server" icon={Server} label="Server" />
               <NavItem to="/infrastructure" icon={ShieldCheck} label="Infrastructure" />
               <NavItem to="/integrations" icon={Blocks} label="Modules" />
@@ -193,6 +192,13 @@ export function AppShell({
           </div>
         </div>
       </header>
+
+      {isMockMode && (
+        <div role="status" className="mx-3 mt-2 flex shrink-0 items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2 font-mono text-[10px] tracking-wide text-amber-700 dark:text-amber-300 sm:mx-5">
+          <span className="rounded border border-amber-500/50 px-1.5 py-0.5 font-semibold">MOCK MODE</span>
+          Local templates only — no real model calls, database writes, or build execution.
+        </div>
+      )}
 
       <main className="min-h-0 flex-1">{children}</main>
     </div>
