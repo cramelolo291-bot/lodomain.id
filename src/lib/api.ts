@@ -435,7 +435,7 @@ function save(state: MockState) {
   }
 }
 
-let state = load();
+const state = load();
 const listeners = new Set<() => void>();
 
 function commit() {
@@ -459,44 +459,6 @@ export const GATEWAY: GatewayInfo = {
 };
 
 /** Canned replies, so the preview shows a real conversation shape. */
-const REPLIES: Record<string, (prompt: string) => string> = {
-  lolo: (p) =>
-    `Gw pecah ini jadi tiga bagian, dan urutannya penting.\n\n` +
-    `**1. Yang sebenarnya lo mau**\nAmbil dari kalimat terakhir lo — "${p.slice(0, 60)}…". Itu inti permintaannya.\n\n` +
-    `**2. Yang belum jelas**\nSpesifikasi dan batasannya belum disebut. Tanpa itu, tebakan saya bisa meleset.\n\n` +
-    `**3. Langkah berikutnya**\nJawab tiga pertanyaan di atas, nanti saya lempar ke spesialis yang paling pas — bukan nebak-nebak dulu.\n\n` +
-    `_Reroute: 2 spesialis dipanggil. Jejak lengkap ada di tab Trace._`,
-
-  scout: (p) =>
-    `**Fakta**\nSemua model di pool ini lewat gateway sendiri, jadi tidak ada data yang keluar ke vendor lain.\n\n` +
-    `**Asumsi**\nSaya asumsikan "${p.slice(0, 40)}…" ini pertanyaan lanjutan, bukan permintaan bikin sistem baru. Kalau salah, koreksi saya.\n\n` +
-    `**Yang belum saya tahu**\nBerapa banyak akun subscribed yang lo punya. Itu yang menentukan kapasitas pool, bukan preferensi model.\n\n` +
-    `_Catatan: yang menentukan kapasitas itu slot, bukan model. Free satu slot, subscribed tiga._`,
-
-  forge: (p) =>
-    `Oke, ini rancangan kasar buat "${p.slice(0, 50)}…".\n\n` +
-    "```ts\n" +
-    `// pilih akun paling sehat yang masih punya slot kosong\n` +
-    `function pick(accounts: PoolAccount[]): PoolAccount | null {\n` +
-    `  return accounts\n` +
-    `    .filter((a) => a.status === "healthy")\n` +
-    `    .filter((a) => a.inFlight < a.maxSlots)\n` +
-    `    .sort((a, b) => b.health - a.health)\n` +
-    `    .at(0) ?? null;\n` +
-    `}\n` +
-    "```\n\n" +
-    `**Edge case yang gue tanganin**\n- Semua akun penuh → jangan crash, kembalikan \`null\` supaya UI bisa nambah akun.\n- Effort nggak didukung → dibuang, bukan error. Contohnya \`mimo\` dan \`solar-pro4\`.\n- 401 → langsung cooldown, bukan dicoba terus.\n\n` +
-    `**Belum gue kerjain**: kuota. Kalau satu user ngabisin slot, user lain numpang antre. Itu butuh batas per-user, bukan per-akun.`,
-
-  redteam: (p) =>
-    `Saya serang "${p.slice(0, 50)}…" dan menemukan 4 hal.\n\n` +
-    `**1. Prompt injection — tinggi**\nAda frasa yang, kalau disisipkan ke konten yang di-retrieve, bisa menimpa instruksi sistem. Rules lo kena polanya, tapi hanya yang literal.\n\n` +
-    `**2. Excessive agency — tinggi**\nNggak ada batas jelas antara "nilai yang lo minta" dan "nilai yang agent boleh akses sendiri". Kalau nanti agent dikasih tool, ini jadi celah.\n\n` +
-    `**3. Guardrail blindness — sedang**\nFilter lo cuma jalan di prompt masuk. Kalau reviewer atau balancer diawasi lewat lapisan sendiri, jalur itu belum difilter.\n\n` +
-    `**4. PII leakage — sedang**\nRegex email dan nomor HP masih kepicu buat nomor versi. False positive, tapi bakal bikin user kesal.\n\n` +
-    `Yang paling saya khawatirin bukan poin di atas — itu semua yang sudah lo tangani. Yang belum ada: **nggak ada cara tahu kalau saya sendiri lagi di-inject.** Itu butuh judge terpisah, bukan agent yang sama yang lagi diperiksa.`,
-};
-
 /** Closing commentary, per specialist. Kept short: the diff is the answer. */
 const CLOSING: Record<string, string> = {
   lolo: "Semua perubahan ada di tab **Changes**. Kalau ada yang belum sesuai, sebut file-nya dan gue ubah bagian itu saja.",
