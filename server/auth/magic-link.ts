@@ -96,6 +96,27 @@ export async function requestMagicLink(email: string): Promise<void> {
 
 export type Verified = { userId: string; email: string; name: string; role: "admin" | "user" };
 
+/** Normalize and check the explicit production administrator allowlist. */
+export function isConfiguredAdminEmail(email: string, configured = env.ADMIN_EMAILS): boolean {
+  const allowed = new Set(configured.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean));
+  return allowed.has(email.trim().toLowerCase());
+}
+
+/**
+ * Production never grants admin to whoever signs up first. Outside production,
+ * first-user bootstrap remains available for local development and tests.
+ */
+export function roleForNewUser(
+  email: string,
+  existingUsers: number,
+  nodeEnv = env.NODE_ENV,
+  configuredAdmins = env.ADMIN_EMAILS,
+): "admin" | "user" {
+  if (isConfiguredAdminEmail(email, configuredAdmins)) return "admin";
+  if (nodeEnv !== "production" && existingUsers === 0) return "admin";
+  return "user";
+}
+
 /**
  * Consumes a token. The `usedAt is null` guard is inside the WHERE clause, so
  * two simultaneous clicks cannot both succeed — the second update matches zero
@@ -125,6 +146,23 @@ export async function consumeMagicLink(token: string): Promise<Verified> {
   const found = existing[0];
 
   if (found) {
+    // A configured administrator can be promoted on sign-in. Existing admins
+    // are never demoted just because the allowlist later changes.
+    if (found.role !== "admin" && isConfiguredAdminEmail(found.email)) {
+      const [promoted] = await db
+        .update(users)
+        .set({ role: "admin", updatedAt: new Date() })
+        .where(eq(users.id, found.id))
+        .returning();
+      if (promoted) {
+        return {
+          userId: promoted.id,
+          email: promoted.email,
+          name: promoted.name,
+          role: promoted.role,
+        };
+      }
+    }
     return {
       userId: found.id,
       email: found.email,
@@ -145,7 +183,7 @@ export async function consumeMagicLink(token: string): Promise<Verified> {
     .values({
       email: claim.email,
       name: nameFromEmail(claim.email),
-      role: count === 0 ? "admin" : "user",
+      role: roleForNewUser(claim.email, count, env.NODE_ENV, env.ADMIN_EMAILS),
     })
     .returning();
 
