@@ -84,6 +84,10 @@ export async function requestMagicLink(email: string): Promise<void> {
     throw new LinkError("Email tidak valid", 400);
   }
 
+  // In production, access is closed by default. Unknown addresses receive the
+  // same outward response as allowed addresses, but no link is issued or sent.
+  if (!isAllowedLoginEmail(address)) return;
+
   const token = generateToken();
   await db.insert(magicLinks).values({
     email: address,
@@ -100,6 +104,18 @@ export type Verified = { userId: string; email: string; name: string; role: "adm
 export function isConfiguredAdminEmail(email: string, configured = env.ADMIN_EMAILS): boolean {
   const allowed = new Set(configured.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean));
   return allowed.has(email.trim().toLowerCase());
+}
+
+/** Production sign-in is restricted to exact allowlisted addresses. */
+export function isAllowedLoginEmail(
+  email: string,
+  nodeEnv = env.NODE_ENV,
+  configuredEmails = env.ALLOWED_EMAILS,
+  configuredAdmins = env.ADMIN_EMAILS,
+): boolean {
+  if (nodeEnv !== "production") return true;
+  const allowed = new Set(configuredEmails.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean));
+  return allowed.has(email.trim().toLowerCase()) || isConfiguredAdminEmail(email, configuredAdmins);
 }
 
 /**
