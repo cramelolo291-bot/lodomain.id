@@ -103,6 +103,11 @@ check("ls lists", runCommand("ls", tree).out.length > 0);
 check("ls -R lists every file", runCommand("ls -R", tree).out.length === 4, `${runCommand("ls -R", tree).out.length}`);
 check("cat returns lines", runCommand("cat index.html", tree).out.length === 3);
 check("cat missing fails", runCommand("cat nope.txt", tree).code === 1);
+const typecheckResult = runCommand("typecheck", tree);
+check(
+  "terminal does not claim a compiler ran when it did not",
+  typecheckResult.code !== 0 && typecheckResult.out.join("\n").includes("Not executed"),
+);
 check("cat by basename works", runCommand("cat app.ts", tree).code === 0);
 check("head limits", runCommand("head -n 2 index.html", tree).out.length === 2);
 check("tail limits", runCommand("tail -n 1 index.html", tree).out[0] === "<p>Three</p>");
