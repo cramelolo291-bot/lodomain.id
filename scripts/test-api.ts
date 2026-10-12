@@ -566,6 +566,56 @@ section("project data space");
   });
 }
 
+// ── Module configuration ───────────────────────────────────────────────────
+
+section("module configuration");
+{
+  await test("lists the seven modules for an authenticated user", async () => {
+    const { status, body } = await call("/api/modules");
+    check("module catalog is 200", status === 200, String(status));
+    check("all seven modules are present", body?.items?.length === 7, JSON.stringify(body?.items));
+    check("unconfigured modules are not reported healthy", body?.items?.every((item: any) => item.status !== "healthy"));
+    check("execution is explicitly disabled", body?.executionEnabled === false);
+  });
+
+  await test("persists an HTTPS endpoint without storing secrets", async () => {
+    const { status, body } = await call("/api/modules/cloud", {
+      method: "PUT",
+      body: JSON.stringify({ endpointUrl: "https://cloud.example.test/api", enabled: true }),
+    });
+    check("configuration update is 200", status === 200, JSON.stringify(body));
+    check("new configuration is pending, not falsely healthy", body?.status === "pending", JSON.stringify(body));
+    const { body: list } = await call("/api/modules");
+    const cloud = list.items.find((item: any) => item.key === "cloud");
+    check("endpoint persists", cloud?.endpointUrl === "https://cloud.example.test/api", JSON.stringify(cloud));
+    check("status remains pending until a real adapter health-check", cloud?.status === "pending");
+  });
+
+  await test("rejects insecure remote endpoints", async () => {
+    const { status } = await call("/api/modules/cloud", {
+      method: "PUT",
+      body: JSON.stringify({ endpointUrl: "http://cloud.example.test", enabled: true }),
+    });
+    check("remote HTTP endpoint is rejected", status === 400, String(status));
+  });
+
+  await test("removes module configuration", async () => {
+    const { status } = await call("/api/modules/cloud", { method: "DELETE" });
+    check("delete is 200", status === 200, String(status));
+    const { body } = await call("/api/modules");
+    const cloud = body.items.find((item: any) => item.key === "cloud");
+    check("deleted module returns to not configured", cloud?.status === "not_configured");
+  });
+
+  await test("requires a session for module configuration", async () => {
+    const savedCookie = cookie;
+    cookie = "";
+    const { status } = await call("/api/modules");
+    cookie = savedCookie;
+    check("anonymous module list is denied", status === 401, String(status));
+  });
+}
+
 // ── Panel + keys ───────────────────────────────────────────────────────────
 
 section("panel");
