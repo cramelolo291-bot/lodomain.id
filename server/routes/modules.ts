@@ -33,8 +33,9 @@ const updateBody = z.object({
 function safeEndpoint(value: string | null | undefined) {
   if (!value) return null;
   const url = new URL(value);
-  if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
-    throw new Error("Endpoint must use HTTPS, except localhost during development.");
+  const localHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && localHost)) {
+    throw new Error("Endpoint must use HTTPS, except HTTP on localhost during development.");
   }
   if (url.username || url.password || url.hash) {
     throw new Error("Endpoint URLs cannot contain credentials or fragments.");
