@@ -340,7 +340,7 @@ await test("an error object is logged without dumping a request body", async () 
 
 section("rate limiter identifies the client honestly");
 
-const { bucketCount, resetBuckets, clientIp } = await import("../server/http/rate-limit");
+const { bucketCount, resetBuckets } = await import("../server/http/rate-limit");
 
 await test("a forged x-forwarded-for is ignored from an untrusted peer", async () => {
   resetBuckets();
