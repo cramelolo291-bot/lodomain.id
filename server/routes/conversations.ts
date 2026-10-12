@@ -27,16 +27,6 @@ routes.use("*", requireAuth);
 const conversationParams = z.object({ id: uuid });
 const messageParams = z.object({ id: uuid });
 
-/** Loads a project the caller owns, or null. */
-async function ownProject(projectId: string, userId: string) {
-  const rows = await db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.ownerId, userId)))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
 /** The caller's default project, created on first use. */
 async function ensureProject(userId: string, name = "lolo-app") {
   const existing = await db
