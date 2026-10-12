@@ -87,6 +87,10 @@ export async function requestMagicLink(email: string): Promise<void> {
   // In production, access is closed by default. Unknown addresses receive the
   // same outward response as allowed addresses, but no link is issued or sent.
   if (!isAllowedLoginEmail(address)) return;
+  // Never log bearer login links in production when email delivery is missing.
+  if (env.NODE_ENV === "production" && !env.RESEND_API_KEY) {
+    throw new LinkError("Email delivery is not configured for this deployment", 503);
+  }
 
   const token = generateToken();
   await db.insert(magicLinks).values({
