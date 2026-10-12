@@ -30,4 +30,12 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // API tests inspect dynamic JSON payloads from the running server; the
+    // production source remains strict, while test assertions narrow responses.
+    files: ["scripts/test-*.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
 );
