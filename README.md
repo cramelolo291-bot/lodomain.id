@@ -102,8 +102,8 @@ What changes when you flip it:
 |---|---|---|
 | The answer | a template | the model in Ollama |
 | Files | in `localStorage` | rows in `project_files` |
-| Build | a printed fake log | the real toolchain, in a workspace |
-| Preview | a string-concatenated `index.html` | the real `dist/`, or a live dev server |
+| Build | not executed | real toolchain in development/tests; production is blocked until an isolated worker exists |
+| Preview | local-only generated HTML | built output or live dev server in development; production project previews are blocked until isolated execution exists |
 | Data space | in memory | real tables you can edit in the panel |
 
 **If the answers still look canned, the frontend is still in mock mode.** The
@@ -131,11 +131,13 @@ The app container is the whole product: static frontend, API, and migrations.
 It waits for Postgres to be healthy, runs `db:migrate` on boot, and reports
 liveness on `/api/health`.
 
+Production user-project builds and live dev servers are intentionally disabled until a separate isolated worker is configured. The current runner is not a security sandbox and must not execute project-controlled lifecycle scripts as the production server user.
+
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
-| `bun run dev` | Vite dev server, mock API |
+| `bun run dev` | Vite dev server using the real HTTP API by default; mock only with explicit development opt-in |
 | `bun run server` | the Hono server |
 | `bun run build` | typecheck + build `dist/` |
 | `bun run db:migrate` | apply pending SQL migrations |
