@@ -424,6 +424,10 @@ export const usersRelations = relations(users, ({ many }) => ({
   moduleConnections: many(moduleConnections),
 }));
 
+export const moduleConnectionsRelations = relations(moduleConnections, ({ one }) => ({
+  owner: one(users, { fields: [moduleConnections.ownerId], references: [users.id] }),
+}));
+
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   owner: one(users, { fields: [projects.ownerId], references: [users.id] }),
   conversations: many(conversations),
