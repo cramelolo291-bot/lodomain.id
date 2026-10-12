@@ -336,9 +336,9 @@ export async function runBuild(
   const planned = stepsFor(target, files);
   if ("skip" in planned) {
     return {
-      ok: false,
+      ok: true,
       target,
-      code: null,
+      code: 0,
       output: planned.skip,
       ms: Date.now() - started,
       timedOut: false,
