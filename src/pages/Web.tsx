@@ -21,7 +21,7 @@ import {
   Star,
   TrendingUp,
 } from "lucide-react";
-import type { FreebuffRepo, FreebuffFile, FreebuffGithubResponse } from "@/lib/frebbuff-data";
+import type { FreebuffFile, FreebuffGithubResponse } from "@/lib/frebbuff-data";
 
 const LABEL_COLORS: Record<string, string> = {
   bug: "bg-[#c85a50] text-white",
@@ -39,34 +39,34 @@ function labelClass(name: string): string {
 }
 
 import { useEffect, useState, useMemo } from "react";
-import { fetchFreebuffData, sortIssues, sortPrs, FREEbuff } from "@/lib/frebbuff-data";
-
-// Static copy of the repo's own metadata, so the page renders at first paint
-// and re-fetches the live numbers from GitHub afterwards. The identity and the
-// fallback numbers live in the data layer so all four public pages agree.
-const STATIC_REPO: FreebuffRepo = FREEbuff;
+import { fetchFreebuffData, sortIssues, sortPrs } from "@/lib/frebbuff-data";
 
 export default function Web() {
-  const [data, setData] = useState<Awaited<ReturnType<typeof fetchFreebuffData>> | null>(
-    null,
-  );
+  const [data, setData] = useState<Awaited<ReturnType<typeof fetchFreebuffData>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      // fetchFreebuffData degrades internally rather than rejecting, so a
-      // throttled visitor still gets the published metrics and a rendered page.
-      const d = await fetchFreebuffData();
-      if (!cancelled) setData(d);
+      try {
+        const d = await fetchFreebuffData();
+        if (!cancelled) setData(d);
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : "Live GitHub data is unavailable.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Rendered from the static copy until the live fetch lands, so the layout
-  // never shifts under the reader.
-  const repo = data?.repo ?? FREEbuff;
+  // No repository metrics or file lists are substituted when the live API fails.
+  const repo = data?.repo ?? null;
   const files = data?.files ?? [];
   const [query, setQuery] = useState("");
 
@@ -81,21 +81,62 @@ export default function Web() {
     p.title.toLowerCase().includes(query.toLowerCase()),
   );
 
-  // Language tally, hardcoded from the actual repo's native extension set.
-  const languages = [
-    { label: "TypeScript", value: 640, color: "bg-[#2b7a5a]" },
-    { label: "Cargo", value: 312, color: "bg-[#ea9123]" },
-    { label: "Python", value: 184, color: "bg-[#3572A5]" },
-    { label: "Rust", value: 128, color: "bg-[#dea584]" },
-    { label: "Bash", value: 67, color: "bg-[#4e5652]" },
-    { label: "HTML", value: 41, color: "bg-[#e34c26]" },
-    { label: "CSS", value: 29, color: "bg-[#563d7c]" },
-    { label: "JSON", value: 23, color: "bg-[#a1a1aa]" },
-  ];
+  const languages = useMemo(() => {
+    const counts = new Map<string, number>();
+    const labels: Record<string, string> = {
+      ts: "TypeScript", tsx: "TypeScript", js: "JavaScript", jsx: "JavaScript",
+      py: "Python", rs: "Rust", toml: "TOML", sh: "Shell", html: "HTML",
+      css: "CSS", json: "JSON", md: "Markdown", yml: "YAML", yaml: "YAML",
+    };
+    for (const file of files) {
+      const leaf = file.path.split("/").pop() ?? file.path;
+      const ext = leaf.includes(".") ? leaf.split(".").pop()!.toLowerCase() : "";
+      if (!ext) continue;
+      const label = labels[ext] ?? ext.toUpperCase();
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, count]) => ({
+        label,
+        value: total ? Math.round((count / total) * 100) : 0,
+        color: label === "TypeScript" ? "bg-[#2b7a5a]" :
+          label === "Python" ? "bg-[#3572A5]" :
+          label === "Rust" ? "bg-[#dea584]" :
+          label === "HTML" ? "bg-[#e34c26]" :
+          label === "CSS" ? "bg-[#563d7c]" : "bg-[#a1a1aa]",
+      }));
+  }, [files]);
 
   const totalFiles = files.length;
   const totalSize = files.reduce((s, f) => s + (f.size ?? 0), 0);
-  const topLanguage = languages[0];
+  const topLanguage = languages[0] ?? { label: "—", value: 0, color: "bg-[#a1a1aa]" };
+
+  if (loading) {
+    return (
+      <AppShell>
+        <div className="flex min-h-[50vh] items-center justify-center p-6">
+          <p className="font-mono text-xs text-ink-4">Loading live repository data…</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (loadError || !repo) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-xl p-6 pt-16">
+          <div className="panel p-6">
+            <p className="font-mono text-xs uppercase tracking-widest text-ember">Live data unavailable</p>
+            <h1 className="mt-3 text-xl font-semibold text-ink-1">GitHub did not return current data</h1>
+            <p className="mt-2 text-sm text-ink-3">{loadError ?? "No live repository payload was returned."}</p>
+            <button className="btn-primary mt-5" onClick={() => window.location.reload()}>Retry live request</button>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -138,10 +179,9 @@ export default function Web() {
           </div>
         </div>
 
-        {data && files.length === 0 && (
+        {files.length === 0 && (
           <p className="mb-8 rounded-[10px] border border-border bg-surface-2 px-4 py-3 font-mono text-[12px] text-ink-3">
-            live GitHub data is unavailable right now — the file tree below is
-            empty and the figures shown are the last published ones.
+            The live API returned an empty file tree for this repository.
           </p>
         )}
 
