@@ -53,21 +53,6 @@ const VOID = new Set([
   "wbr",
 ]);
 
-/** Elements that browsers implicitly close when their own opening tag appears. */
-const IMPLICIT_CLOSE = new Set(["p", "li", "dt", "dd", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "th", "td", "body", "div"]);
-
-function isWhiteSpace(ch: string): boolean {
-  return ch === " " || ch === "\t" || ch === "\n" || ch === "\r";
-}
-
-function isNameStart(ch: string): boolean {
-  return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_" || ch === ":" || ch === "-" || ch === "." || ch >= "\u0080";
-}
-
-function isNameChar(ch: string): boolean {
-  return isNameStart(ch) || (ch >= "0" && ch <= "9");
-}
-
 /**
  * Decode the five named HTML entities plus numeric ones. Attributes and text
  * travel through here; the markup itself is left untouched so the tree keeps
@@ -87,21 +72,6 @@ export function decodeEntities(escaped: string): string {
     .replace(/&#x([0-9a-fA-F]+)/g, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)));
 }
 
-/** Split `&entities;` from surrounding text, leaving the entities for decode. */
-function splitEntities(input: string): { text: string; entity: string }[] {
-  const out: { text: string; entity: string }[] = [];
-  let rest = input;
-  let index = 0;
-  const entityRe = /&(?:#[0-9]+|&[a-zA-Z0-9]+;)/g;
-  let match: RegExpExecArray | null;
-  while ((match = entityRe.exec(rest)) !== null) {
-    out.push({ text: rest.slice(0, match.index), entity: match[0] });
-    rest = rest.slice(match.index + match[0].length);
-  }
-  out.push({ text: rest, entity: "" });
-  return out;
-}
-
 /**
  * Tokenize markup into an array of chunks: text (with entities decoded) or an
  * opening/closing tag object. Malformed fragments are retained as text rather
@@ -113,7 +83,7 @@ export function tokenize(html: string): Array<{ type: "text"; value: string } | 
   let rest = html;
 
   while (rest.length > 0) {
-    const open = rest.search(/<[a-zA-Z\/]/);
+    const open = rest.search(/<[a-zA-Z/]/);
     if (open === -1) {
       out.push({ type: "text", value: rest });
       break;
@@ -142,7 +112,7 @@ export function tokenize(html: string): Array<{ type: "text"; value: string } | 
     const restOfTag = isClosing ? inner.slice(1).trimStart() : inner.trimStart();
 
     // Attributes: keep the raw string so we can decode entities later.
-    const attrRe = /([a-zA-Z_:][a-zA-Z0-9_:.-]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))/g;
+    const attrRe = /([a-zA-Z_:][a-zA-Z0-9_:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
     const attrs = new Map<string, string>();
     let attrMatch: RegExpExecArray | null;
     attrRe.lastIndex = 0;
@@ -244,8 +214,7 @@ function buildNode(tokens: Token[], start: number): { node: Node; next: number }
 export function parse(html: string): Node {
   if (typeof html !== "string") return { tag: "text", attrs: new Map(), children: [], text: "" };
   const tokens = tokenize(html);
-  const { node, next } = buildNode(tokens, 0);
-  return node;
+  return buildNode(tokens, 0).node;
 }
 
 /** True when the element is a head content element — invisible in the final markdown. */
