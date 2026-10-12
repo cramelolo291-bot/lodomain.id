@@ -180,8 +180,10 @@ export function runCommand(input: string, files: Tree): CommandResult {
 
     case "tsc":
     case "typecheck":
-      out.push("typecheck: 0 errors");
-      return { out, code: 0 };
+      return {
+        out: ["Not executed: this read-only terminal cannot run the TypeScript compiler. Use the real Build → Typecheck action."],
+        code: 1,
+      };
 
     default:
       return { out: [`${cmd}: command not found. Try 'help'.`], code: 127 };
