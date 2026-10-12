@@ -149,7 +149,7 @@ export function AppShell({
                 <span className="text-[14px] font-medium tracking-tight text-ink-1">
                   Lolo AI
                 </span>
-                <span className="mono-label mt-1 text-[9px]">studio</span>
+                <span className="mono-label mt-1 text-[9px]">AGENT WORKSPACE</span>
               </span>
             </NavLink>
             <span className="hidden h-5 w-px bg-line sm:block" />
