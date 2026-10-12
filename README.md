@@ -121,6 +121,8 @@ fallback so a hard refresh on `/chat` or `/server` works. It expects a reverse
 proxy in front of it for TLS — and if you put one there, set `TRUST_PROXY` to
 its address so rate limiting sees real clients instead of your proxy's.
 
+Before exposing it, configure `ALLOWED_EMAILS` and `ADMIN_EMAILS`. Production sign-in is denied by default for unlisted addresses, and admin rights never go to the first public signup.
+
 Container build:
 
 ```bash
