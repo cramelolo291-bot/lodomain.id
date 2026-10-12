@@ -14,6 +14,7 @@ import { getAgent } from "../src/lib/catalog";
 import { getModel, MODELS } from "../src/lib/catalog";
 import { hashToken, generateToken, generateApiKey, verifyApiKey } from "../server/auth/tokens";
 import { screen } from "../src/lib/guardrails";
+import { roleForNewUser } from "../server/auth/magic-link";
 
 let pass = 0;
 let fail = 0;
@@ -26,6 +27,25 @@ const check = (label: string, cond: boolean, extra = "") => {
     console.log(`  FAIL ${label} ${extra}`);
   }
 };
+
+// ── Admin bootstrap policy ────────────────────────────────────────────────
+console.log("\n— admin bootstrap policy —");
+check(
+  "production first signup is not admin",
+  roleForNewUser("stranger@example.com", 0, "production", "owner@example.com") === "user",
+);
+check(
+  "configured production admin is allowlisted",
+  roleForNewUser("owner@example.com", 12, "production", "owner@example.com,ops@example.com") === "admin",
+);
+check(
+  "development bootstrap keeps the first account admin",
+  roleForNewUser("developer@example.com", 0, "development", "") === "admin",
+);
+check(
+  "later development accounts are regular users",
+  roleForNewUser("friend@example.com", 1, "development", "") === "user",
+);
 
 // ── File blocks ────────────────────────────────────────────────────────────
 
