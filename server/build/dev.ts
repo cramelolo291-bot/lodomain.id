@@ -177,6 +177,15 @@ export async function startDev(
   files: Record<string, string>,
   opts: { port?: number; force?: boolean } = {},
 ): Promise<StartResult> {
+  // A project-controlled dev script is arbitrary code. Do not execute it as
+  // the production server user; production requires a separately isolated worker.
+  if (process.env.NODE_ENV === "production") {
+    return {
+      ok: false,
+      reason: "Live dev servers are disabled in production until an isolated worker is configured.",
+    };
+  }
+
   const existing = servers.get(projectId);
   if (existing && isAlive(existing) && !opts.force) {
     return { ok: true, port: existing.port, reused: true };
