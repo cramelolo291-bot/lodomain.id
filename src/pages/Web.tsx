@@ -105,7 +105,6 @@ export default function Web() {
 
   const totalFiles = files.length;
   const totalSize = files.reduce((s, f) => s + (f.size ?? 0), 0);
-  const topLanguage = languages[0] ?? { label: "—", value: 0, color: "bg-[#a1a1aa]" };
 
   if (loading) {
     return (
