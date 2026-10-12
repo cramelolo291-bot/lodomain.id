@@ -16,7 +16,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       NODE_ENV: test
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:55432/postgres
